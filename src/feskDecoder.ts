@@ -1,0 +1,247 @@
+import { ToneDetector } from './toneDetector';
+import { PreambleDetector } from './preambleDetector';
+import { SyncDetector } from './syncDetector';
+import { AudioSample, Frame, SymbolDetection } from './types';
+import { FeskConfig, DEFAULT_CONFIG } from './config';
+import { CanonicalTritDecoder } from './utils/canonicalTritDecoder';
+import { LFSRDescrambler } from './utils/lfsrDescrambler';
+import { CRC16 } from './utils/crc16';
+
+interface DecoderState {
+  phase: 'searching' | 'sync' | 'payload';
+  tritBuffer: number[];
+  estimatedSymbolDuration: number;
+  estimatedFrequencies: [number, number, number];
+  frameStartTime: number;
+  tritCount: number;
+}
+
+/**
+ * Complete FESK decoder implementing the new TX format
+ */
+export class FeskDecoder {
+  private config: FeskConfig;
+  private toneDetector: ToneDetector;
+  private preambleDetector: PreambleDetector;
+  private syncDetector: SyncDetector;
+  private state: DecoderState;
+
+  constructor(config: FeskConfig = DEFAULT_CONFIG) {
+    this.config = config;
+    this.toneDetector = new ToneDetector(config);
+    this.preambleDetector = new PreambleDetector(config);
+    this.syncDetector = new SyncDetector(config);
+    
+    this.state = {
+      phase: 'searching',
+      tritBuffer: [],
+      estimatedSymbolDuration: config.symbolDuration,
+      estimatedFrequencies: [...config.toneFrequencies] as [number, number, number],
+      frameStartTime: 0,
+      tritCount: 0
+    };
+  }
+
+  /**
+   * Process audio sample and attempt to decode FESK frame
+   */
+  processAudio(audioSample: AudioSample): Frame | null {
+    const toneDetections = this.toneDetector.detectTones(audioSample);
+    
+    if (toneDetections.length === 0) {
+      return null;
+    }
+
+    switch (this.state.phase) {
+      case 'searching':
+        return this.handleSearchingPhase(toneDetections, audioSample.timestamp);
+      
+      case 'sync':
+        return this.handleSyncPhase(toneDetections, audioSample.timestamp);
+      
+      case 'payload':
+        return this.handlePayloadPhase(toneDetections, audioSample.timestamp);
+      
+      default:
+        return null;
+    }
+  }
+
+  private handleSearchingPhase(toneDetections: any[], timestamp: number): Frame | null {
+    const preambleResult = this.preambleDetector.processToneDetections(toneDetections, timestamp);
+    
+    if (preambleResult?.detected) {
+      console.log('Preamble detected! Transitioning to sync phase...');
+      this.state.phase = 'sync';
+      this.state.estimatedSymbolDuration = preambleResult.estimatedSymbolDuration;
+      this.state.estimatedFrequencies = preambleResult.estimatedFrequencies;
+      this.state.frameStartTime = preambleResult.startTime;
+      this.syncDetector.reset();
+    }
+    
+    return null;
+  }
+
+  private handleSyncPhase(toneDetections: any[], timestamp: number): Frame | null {
+    for (const detection of toneDetections) {
+      const symbol = this.toneToSymbol(detection.frequency);
+      if (symbol !== null) {
+        const symbolDetection: SymbolDetection = {
+          symbol,
+          confidence: detection.confidence,
+          timestamp
+        };
+        
+        const syncResult = this.syncDetector.addSymbol(symbolDetection);
+        if (syncResult?.detected) {
+          console.log('Sync detected! Transitioning to payload phase...');
+          this.state.phase = 'payload';
+          this.state.tritBuffer = [];
+          this.state.tritCount = 0;
+          return null;
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  private handlePayloadPhase(toneDetections: any[], timestamp: number): Frame | null {
+    for (const detection of toneDetections) {
+      const symbol = this.toneToSymbol(detection.frequency);
+      if (symbol !== null) {
+        // Check for pilot sequences [0,2] every 64 trits
+        if (this.state.tritCount > 0 && this.state.tritCount % 64 === 0) {
+          // Look ahead for pilot sequence
+          if (symbol === 0) {
+            // This might be the start of a pilot, we'll handle it in the next detection
+            console.log(`Potential pilot start at trit ${this.state.tritCount}`);
+          }
+          // For now, just continue - pilot removal will be handled later
+        }
+        
+        this.state.tritBuffer.push(symbol);
+        this.state.tritCount++;
+        
+        // Try to decode when we have a reasonable amount of data
+        if (this.state.tritBuffer.length >= 20) { // Minimum for header + some payload
+          const frame = this.attemptDecode();
+          if (frame) {
+            this.reset();
+            return frame;
+          }
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  private attemptDecode(): Frame | null {
+    try {
+      // Remove pilots from trit buffer
+      const cleanedTrits = this.removePilots(this.state.tritBuffer);
+      
+      // Convert trits to bytes using canonical MS-first algorithm
+      const decoder = new CanonicalTritDecoder();
+      for (const trit of cleanedTrits) {
+        decoder.addTrit(trit);
+      }
+      
+      const allBytes = decoder.getBytes();
+      if (allBytes.length < 4) { // Need at least header + minimal payload + CRC
+        return null;
+      }
+      
+      // Parse header to get payload length
+      const descrambler = new LFSRDescrambler();
+      const headerHi = descrambler.descrambleByte(allBytes[0]);
+      const headerLo = descrambler.descrambleByte(allBytes[1]);
+      const payloadLength = (headerHi << 8) | headerLo;
+      
+      // Validate payload length and total size
+      if (payloadLength <= 0 || payloadLength > 64 || allBytes.length < 2 + payloadLength + 2) {
+        return null; // Not enough data yet or invalid
+      }
+      
+      // Descramble payload
+      const payloadScrambled = allBytes.slice(2, 2 + payloadLength);
+      const payload = new Uint8Array(payloadLength);
+      for (let i = 0; i < payloadLength; i++) {
+        payload[i] = descrambler.descrambleByte(payloadScrambled[i]);
+      }
+      
+      // Extract CRC (unscrambled in new format)
+      const crcBytes = allBytes.slice(2 + payloadLength, 2 + payloadLength + 2);
+      const receivedCrc = (crcBytes[0] << 8) | crcBytes[1];
+      const calculatedCrc = CRC16.calculate(payload);
+      
+      return {
+        header: { payloadLength },
+        payload,
+        crc: receivedCrc,
+        isValid: receivedCrc === calculatedCrc
+      };
+      
+    } catch (error) {
+      // Decoding failed, need more data
+      return null;
+    }
+  }
+
+  private removePilots(trits: number[]): number[] {
+    const PILOT_INTERVAL = 64;
+    const cleaned: number[] = [];
+    let dataCount = 0;
+    let i = 0;
+    
+    while (i < trits.length) {
+      // Check if we've reached a pilot interval
+      if (dataCount > 0 && dataCount % PILOT_INTERVAL === 0) {
+        // Look ahead for [0,2] pilot sequence
+        if (i < trits.length - 1 && trits[i] === 0 && trits[i + 1] === 2) {
+          i += 2; // Skip both pilot trits
+          // DO NOT increment dataCount for pilots
+          continue;
+        }
+        // Be tolerant: if pilots are missing, just keep going
+      }
+      
+      // Add data trit and increment counter
+      cleaned.push(trits[i]);
+      dataCount++;
+      i++;
+    }
+    
+    return cleaned;
+  }
+
+  private toneToSymbol(frequency: number): number | null {
+    const [f0, f1, f2] = this.state.estimatedFrequencies;
+    const tolerance = 50; // Hz tolerance
+    
+    if (Math.abs(frequency - f0) < tolerance) return 0;
+    if (Math.abs(frequency - f1) < tolerance) return 1;
+    if (Math.abs(frequency - f2) < tolerance) return 2;
+    
+    return null;
+  }
+
+  getState(): DecoderState {
+    return { ...this.state };
+  }
+
+  reset(): void {
+    this.state = {
+      phase: 'searching',
+      tritBuffer: [],
+      estimatedSymbolDuration: this.config.symbolDuration,
+      estimatedFrequencies: [...this.config.toneFrequencies] as [number, number, number],
+      frameStartTime: 0,
+      tritCount: 0
+    };
+    
+    this.preambleDetector.reset();
+    this.syncDetector.reset();
+  }
+}
