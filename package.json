@@ -12,9 +12,10 @@
     "prettier-check": "prettier --check src/*",
     "unit": "npm test",
     "check-exports": "attw --pack .",
-    "type-check": "npx tsc --noEmit *.ts src/*.ts && npm run check-exports"
+    "type-check": "npx tsc --noEmit && npm run check-exports"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
     "@types/jest": "^29.0.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
