@@ -1,5 +1,5 @@
 import { ToneDetector } from "./toneDetector";
-import { AudioSample, DecoderState, Frame, SymbolDetection } from "./types";
+import { AudioSample, DecoderState, Frame } from "./types";
 import { FeskConfig, DEFAULT_CONFIG } from "./config";
 
 export class AdaptiveFeskDecoder {

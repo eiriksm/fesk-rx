@@ -10,7 +10,9 @@
     "lint": "eslint src --ext .ts",
     "test": "jest",
     "prettier-check": "prettier --check src/*",
-    "unit": "npm test"
+    "unit": "npm test",
+    "check-exports": "attw --pack .",
+    "type-check": "npx tsc --noEmit *.ts src/*.ts && npm run check-exports",
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",
