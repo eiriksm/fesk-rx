@@ -21,7 +21,7 @@ export class TritDecoder {
   getCompletedBytes(): Uint8Array {
     const bytes: number[] = [];
     let temp = this.value;
-    
+
     // Extract bytes from least significant to most significant
     while (temp > 0n) {
       bytes.unshift(Number(temp % 256n));
@@ -35,13 +35,13 @@ export class TritDecoder {
   extractExactBytes(numBytes: number): Uint8Array {
     const bytes = new Uint8Array(numBytes);
     let temp = this.value;
-    
+
     // Fill bytes from right to left (LS byte first)
     for (let i = numBytes - 1; i >= 0; i--) {
       bytes[i] = Number(temp % 256n);
       temp = temp / 256n;
     }
-    
+
     return bytes;
   }
 

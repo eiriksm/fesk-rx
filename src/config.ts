@@ -15,5 +15,5 @@ export const DEFAULT_CONFIG: FeskConfig = {
   preambleBits: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0], // 12 bit alternating pattern
   barker13: [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1], // Barker-13 sequence
   pilotSequence: [0, 2], // [f0, f2]
-  pilotInterval: 64 // insert pilot every 64 trits
+  pilotInterval: 64, // insert pilot every 64 trits
 };

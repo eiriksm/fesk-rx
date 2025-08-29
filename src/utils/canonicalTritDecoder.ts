@@ -33,7 +33,7 @@ export class CanonicalTritDecoder {
 
     const bytes: number[] = [];
     let temp = this.value;
-    
+
     // Extract bytes from least significant to most significant
     // but store them in MS-first order
     while (temp > 0n) {
@@ -50,13 +50,13 @@ export class CanonicalTritDecoder {
   extractExactBytes(numBytes: number): Uint8Array {
     const bytes = new Uint8Array(numBytes);
     let temp = this.value;
-    
+
     // Fill from right to left (LS byte gets the remainder)
     for (let i = numBytes - 1; i >= 0; i--) {
       bytes[i] = Number(temp % 256n);
       temp = temp / 256n;
     }
-    
+
     return bytes;
   }
 

@@ -1,7 +1,7 @@
 export class LFSRDescrambler {
   private state: number;
   private readonly polynomial = 0x0211; // x^9 + x^5 + 1
-  private readonly seed = 0x1FF;
+  private readonly seed = 0x1ff;
 
   constructor() {
     this.state = this.seed;
@@ -22,9 +22,9 @@ export class LFSRDescrambler {
       const inputBit = (scrambedByte >> i) & 1;
       descrambled |= (inputBit ^ lfsrBit) << i;
 
-      // Advance LFSR: feedback polynomial (match TX exactly)  
+      // Advance LFSR: feedback polynomial (match TX exactly)
       const feedback = ((this.state >> 8) ^ (this.state >> 4)) & 1;
-      this.state = ((this.state << 1) | feedback) & 0x1FF;
+      this.state = ((this.state << 1) | feedback) & 0x1ff;
     }
 
     return descrambled;
