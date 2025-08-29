@@ -1,7 +1,7 @@
 export class CRC16 {
   private static readonly POLY = 0x1021; // CRC-16/CCITT polynomial
 
-  static calculate(data: Uint8Array, initValue: number = 0xFFFF): number {
+  static calculate(data: Uint8Array, initValue: number = 0xffff): number {
     let crc = initValue;
 
     for (let i = 0; i < data.length; i++) {
@@ -12,7 +12,7 @@ export class CRC16 {
   }
 
   static updateCRC16(crc: number, byteVal: number): number {
-    crc ^= (byteVal << 8);
+    crc ^= byteVal << 8;
 
     for (let i = 0; i < 8; i++) {
       if (crc & 0x8000) {
@@ -22,7 +22,7 @@ export class CRC16 {
       }
     }
 
-    return crc & 0xFFFF;
+    return crc & 0xffff;
   }
 
   static validate(data: Uint8Array, expectedCrc: number): boolean {

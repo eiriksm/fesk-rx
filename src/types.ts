@@ -28,7 +28,7 @@ export interface FrameHeader {
 }
 
 export interface DecoderState {
-  phase: 'searching' | 'preamble' | 'sync' | 'header' | 'payload';
+  phase: "searching" | "preamble" | "sync" | "header" | "payload";
   symbolBuffer: SymbolDetection[];
   estimatedSymbolDuration: number;
   estimatedFrequencies: [number, number, number];
