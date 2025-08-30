@@ -58,4 +58,27 @@ export class WavReader {
 
     return chunks;
   }
+
+  /**
+   * Read WAV file starting from a specific offset (useful for skipping silence)
+   */
+  static async readWavFileWithOffset(
+    filePath: string,
+    offsetSeconds: number = 0,
+  ): Promise<AudioSample> {
+    const fullAudio = await this.readWavFile(filePath);
+    const offsetSamples = Math.floor(offsetSeconds * fullAudio.sampleRate);
+
+    if (offsetSamples >= fullAudio.data.length) {
+      throw new Error(`Offset ${offsetSeconds}s exceeds audio duration`);
+    }
+
+    const offsetData = fullAudio.data.slice(offsetSamples);
+
+    return {
+      data: offsetData,
+      sampleRate: fullAudio.sampleRate,
+      timestamp: fullAudio.timestamp + offsetSeconds * 1000,
+    };
+  }
 }

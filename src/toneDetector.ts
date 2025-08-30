@@ -9,12 +9,14 @@ export class ToneDetector {
 
   constructor(config: FeskConfig) {
     this.config = config;
-    // Use window size that gives good frequency resolution
-    this.windowSize = Math.pow(
-      2,
-      Math.ceil(Math.log2(config.sampleRate * 0.05)),
-    ); // ~50ms window
-    this.hopSize = Math.floor(this.windowSize / 4); // 75% overlap
+    // Use window size optimized for FESK tone detection
+    // For 44.1kHz, we want good frequency resolution around 2-4kHz
+    const windowDurationMs = 25; // 25ms window for good time/freq tradeoff
+    const windowSamples = Math.floor(
+      (config.sampleRate * windowDurationMs) / 1000,
+    );
+    this.windowSize = Math.pow(2, Math.ceil(Math.log2(windowSamples))); // Round to next power of 2
+    this.hopSize = Math.floor(this.windowSize / 8); // More overlap for better detection
   }
 
   detectTones(audioSample: AudioSample): ToneDetection[] {
