@@ -97,12 +97,17 @@ export class FeskDecoder {
     toneDetections: any[],
     timestamp: number,
   ): Frame | null {
-    for (const detection of toneDetections) {
-      const symbol = this.toneToSymbol(detection.frequency);
+    // Use symbol decimation - take the best detection per chunk (same as preamble detector)
+    if (toneDetections.length > 0) {
+      const bestDetection = toneDetections.reduce((best: any, current: any) => 
+        current.confidence > best.confidence ? current : best
+      );
+      
+      const symbol = this.toneToSymbol(bestDetection.frequency);
       if (symbol !== null) {
         const symbolDetection: SymbolDetection = {
           symbol,
-          confidence: detection.confidence,
+          confidence: bestDetection.confidence,
           timestamp,
         };
 
@@ -124,8 +129,13 @@ export class FeskDecoder {
     toneDetections: any[],
     timestamp: number,
   ): Frame | null {
-    for (const detection of toneDetections) {
-      const symbol = this.toneToSymbol(detection.frequency);
+    // Use symbol decimation - take the best detection per chunk
+    if (toneDetections.length > 0) {
+      const bestDetection = toneDetections.reduce((best: any, current: any) => 
+        current.confidence > best.confidence ? current : best
+      );
+      
+      const symbol = this.toneToSymbol(bestDetection.frequency);
       if (symbol !== null) {
         // Check for pilot sequences [0,2] every 64 trits
         if (this.state.tritCount > 0 && this.state.tritCount % 64 === 0) {

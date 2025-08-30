@@ -18,13 +18,18 @@ export class PreambleDetector {
     detections: ToneDetection[],
     timestamp: number,
   ): PreambleDetectionResult | null {
-    // Convert tone detections to symbols
-    for (const detection of detections) {
-      const symbol = this.toneToSymbol(detection.frequency);
+    // Convert tone detections to symbols - pick the best one per chunk
+    if (detections.length > 0) {
+      // Find the detection with highest confidence
+      const bestDetection = detections.reduce((best, current) => 
+        current.confidence > best.confidence ? current : best
+      );
+      
+      const symbol = this.toneToSymbol(bestDetection.frequency);
       if (symbol !== null) {
         this.addSymbol({
           symbol,
-          confidence: detection.confidence,
+          confidence: bestDetection.confidence,
           timestamp,
         });
       }
@@ -46,13 +51,15 @@ export class PreambleDetector {
 
   private addSymbol(symbol: SymbolDetection): void {
     // Remove old symbols (keep only recent ones for timing estimation)
-    const maxAge = this.config.symbolDuration * 20; // Keep last 20 symbol periods
+    // Use a much longer time window since our chunks are 100ms apart
+    const maxAge = this.config.symbolDuration * 1000 * 20; // Convert to ms, keep last 20 symbol periods
     this.symbolBuffer = this.symbolBuffer.filter(
       (s) => symbol.timestamp - s.timestamp < maxAge,
     );
 
     // Add new symbol
     this.symbolBuffer.push(symbol);
+    // Symbol added to buffer
 
     // Update timing estimation if we have enough symbols
     this.updateTimingEstimate();
@@ -61,23 +68,25 @@ export class PreambleDetector {
   private updateTimingEstimate(): void {
     if (this.symbolBuffer.length < 3) return;
 
-    // Calculate average time between symbols
+    // Calculate average time between symbols - be more flexible with timing
     const intervals: number[] = [];
     for (let i = 1; i < this.symbolBuffer.length; i++) {
       const interval =
         this.symbolBuffer[i].timestamp - this.symbolBuffer[i - 1].timestamp;
-      // Only use reasonable intervals (within 50% of expected duration)
-      if (
-        interval > this.config.symbolDuration * 0.5 &&
-        interval < this.config.symbolDuration * 1.5
-      ) {
+      
+      // More flexible timing tolerance - allow 25% to 200% of expected duration
+      const expectedMs = this.config.symbolDuration * 1000;
+      if (interval > expectedMs * 0.25 && interval < expectedMs * 2.0) {
         intervals.push(interval);
       }
     }
 
     if (intervals.length > 0) {
-      this.estimatedSymbolDuration =
-        intervals.reduce((sum, i) => sum + i, 0) / intervals.length;
+      const avgIntervalMs = intervals.reduce((sum, i) => sum + i, 0) / intervals.length;
+      this.estimatedSymbolDuration = avgIntervalMs / 1000; // Convert back to seconds
+      
+      // Clamp to reasonable range
+      this.estimatedSymbolDuration = Math.max(0.05, Math.min(0.2, this.estimatedSymbolDuration));
     }
   }
 
@@ -109,8 +118,8 @@ export class PreambleDetector {
     const matchRatio = matches / this.config.preambleBits.length;
     const avgConfidence = totalConfidence / this.config.preambleBits.length;
 
-    // Require high match ratio and confidence for preamble detection
-    if (matchRatio >= 0.8 && avgConfidence >= 0.5) {
+    // More flexible preamble detection thresholds
+    if (matchRatio >= 0.75 && avgConfidence >= 0.4) { // Lowered thresholds for real audio
       const startTime = recentSymbols[0].timestamp;
       const endTime = recentSymbols[recentSymbols.length - 1].timestamp;
 
