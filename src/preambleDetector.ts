@@ -21,10 +21,10 @@ export class PreambleDetector {
     // Convert tone detections to symbols - pick the best one per chunk
     if (detections.length > 0) {
       // Find the detection with highest confidence
-      const bestDetection = detections.reduce((best, current) => 
-        current.confidence > best.confidence ? current : best
+      const bestDetection = detections.reduce((best, current) =>
+        current.confidence > best.confidence ? current : best,
       );
-      
+
       const symbol = this.toneToSymbol(bestDetection.frequency);
       if (symbol !== null) {
         this.addSymbol({
@@ -73,7 +73,7 @@ export class PreambleDetector {
     for (let i = 1; i < this.symbolBuffer.length; i++) {
       const interval =
         this.symbolBuffer[i].timestamp - this.symbolBuffer[i - 1].timestamp;
-      
+
       // More flexible timing tolerance - allow 25% to 200% of expected duration
       const expectedMs = this.config.symbolDuration * 1000;
       if (interval > expectedMs * 0.25 && interval < expectedMs * 2.0) {
@@ -82,11 +82,15 @@ export class PreambleDetector {
     }
 
     if (intervals.length > 0) {
-      const avgIntervalMs = intervals.reduce((sum, i) => sum + i, 0) / intervals.length;
+      const avgIntervalMs =
+        intervals.reduce((sum, i) => sum + i, 0) / intervals.length;
       this.estimatedSymbolDuration = avgIntervalMs / 1000; // Convert back to seconds
-      
+
       // Clamp to reasonable range
-      this.estimatedSymbolDuration = Math.max(0.05, Math.min(0.2, this.estimatedSymbolDuration));
+      this.estimatedSymbolDuration = Math.max(
+        0.05,
+        Math.min(0.2, this.estimatedSymbolDuration),
+      );
     }
   }
 
@@ -119,7 +123,8 @@ export class PreambleDetector {
     const avgConfidence = totalConfidence / this.config.preambleBits.length;
 
     // More flexible preamble detection thresholds
-    if (matchRatio >= 0.75 && avgConfidence >= 0.4) { // Lowered thresholds for real audio
+    if (matchRatio >= 0.75 && avgConfidence >= 0.4) {
+      // Lowered thresholds for real audio
       const startTime = recentSymbols[0].timestamp;
       const endTime = recentSymbols[recentSymbols.length - 1].timestamp;
 

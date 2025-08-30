@@ -99,10 +99,10 @@ export class FeskDecoder {
   ): Frame | null {
     // Use symbol decimation - take the best detection per chunk (same as preamble detector)
     if (toneDetections.length > 0) {
-      const bestDetection = toneDetections.reduce((best: any, current: any) => 
-        current.confidence > best.confidence ? current : best
+      const bestDetection = toneDetections.reduce((best: any, current: any) =>
+        current.confidence > best.confidence ? current : best,
       );
-      
+
       const symbol = this.toneToSymbol(bestDetection.frequency);
       if (symbol !== null) {
         const symbolDetection: SymbolDetection = {
@@ -131,10 +131,10 @@ export class FeskDecoder {
   ): Frame | null {
     // Use symbol decimation - take the best detection per chunk
     if (toneDetections.length > 0) {
-      const bestDetection = toneDetections.reduce((best: any, current: any) => 
-        current.confidence > best.confidence ? current : best
+      const bestDetection = toneDetections.reduce((best: any, current: any) =>
+        current.confidence > best.confidence ? current : best,
       );
-      
+
       const symbol = this.toneToSymbol(bestDetection.frequency);
       if (symbol !== null) {
         // Check for pilot sequences [0,2] every 64 trits

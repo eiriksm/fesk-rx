@@ -55,7 +55,6 @@ describe("FESK Integration Tests", () => {
     };
   }
 
-
   function decodeCompleteSequenceCustom(symbols: number[]) {
     // Same as decodeCompleteSequence but with custom pilot removal for long sequences
 
@@ -71,7 +70,7 @@ describe("FESK Integration Tests", () => {
     // Extract payload section
     const payloadTrits = symbols.slice(25);
 
-    // Let the decoder handle pilot removal internally 
+    // Let the decoder handle pilot removal internally
     const cleanedTrits = payloadTrits;
 
     // Convert to bytes
@@ -106,7 +105,6 @@ describe("FESK Integration Tests", () => {
       message: new TextDecoder().decode(payload),
     };
   }
-
 
   function decodeUptimeSequence(symbols: number[]) {
     // Verify preamble and sync
@@ -228,7 +226,7 @@ describe("FESK Integration Tests", () => {
 
     it('should decode "the truth is out there" message correctly using FeskDecoder', async () => {
       const { FeskDecoder } = await import("../feskDecoder");
-      
+
       // Create symbol sequence with proper timing for FeskDecoder
       const truthSequence = [
         // Preamble + Sync
@@ -254,14 +252,15 @@ describe("FESK Integration Tests", () => {
 
       for (let i = 0; i < truthSequence.length; i++) {
         const symbol = truthSequence[i];
-        
+
         // Create mock audio data that would produce this symbol
         const mockAudioData = new Float32Array(samplesPerSymbol);
         // Fill with a simple tone at the appropriate frequency
         const frequency = symbol === 0 ? 2400 : symbol === 1 ? 3000 : 3600;
-        
+
         for (let j = 0; j < samplesPerSymbol; j++) {
-          mockAudioData[j] = Math.sin(2 * Math.PI * frequency * j / sampleRate) * 0.5;
+          mockAudioData[j] =
+            Math.sin((2 * Math.PI * frequency * j) / sampleRate) * 0.5;
         }
 
         const audioSample = {
@@ -278,16 +277,18 @@ describe("FESK Integration Tests", () => {
       }
 
       expect(decodedFrame).not.toBeNull();
-      
+
       const message = new TextDecoder().decode(decodedFrame!.payload);
-      
+
       // The FeskDecoder correctly handles pilot removal and produces valid results
       expect(decodedFrame!.header.payloadLength).toBe(22);
       expect(message).toBe("the truth is out there");
-      expect(decodedFrame!.crc).toBe(0x7c94);  // CRC produced by FeskDecoder's pilot removal
-      
+      expect(decodedFrame!.crc).toBe(0x7c94); // CRC produced by FeskDecoder's pilot removal
+
       // Verify the payload bytes are correct
-      const expectedBytes = "the truth is out there".split('').map(c => c.charCodeAt(0));
+      const expectedBytes = "the truth is out there"
+        .split("")
+        .map((c) => c.charCodeAt(0));
       const actualBytes = Array.from(decodedFrame!.payload);
       expect(actualBytes).toEqual(expectedBytes);
     });
@@ -387,21 +388,31 @@ describe("FESK Integration Tests", () => {
 
       // Read WAV file starting after initial silence
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-      const audioWithOffset = await WavReader.readWavFileWithOffset(wavPath, 0.4); // Skip 400ms silence
+      const audioWithOffset = await WavReader.readWavFileWithOffset(
+        wavPath,
+        0.4,
+      ); // Skip 400ms silence
 
       // Process in 100ms chunks aligned with symbol duration
       const chunkSize = 0.1; // 100ms chunks
-      const totalChunks = Math.floor(audioWithOffset.data.length / (audioWithOffset.sampleRate * chunkSize));
+      const totalChunks = Math.floor(
+        audioWithOffset.data.length / (audioWithOffset.sampleRate * chunkSize),
+      );
 
       const decoder = new FeskDecoder();
       let decodedFrame = null;
-      let lastState = '';
+      let lastState = "";
 
       // Process enough chunks for the full message (preamble + sync + payload + CRC)
       // The known sequence has 66 symbols = 6.6 seconds at 100ms per symbol
-      for (let i = 0; i < Math.min(70, totalChunks); i++) { // Process up to 7 seconds
-        const startSample = Math.floor(i * audioWithOffset.sampleRate * chunkSize);
-        const endSample = Math.floor((i + 1) * audioWithOffset.sampleRate * chunkSize);
+      for (let i = 0; i < Math.min(70, totalChunks); i++) {
+        // Process up to 7 seconds
+        const startSample = Math.floor(
+          i * audioWithOffset.sampleRate * chunkSize,
+        );
+        const endSample = Math.floor(
+          (i + 1) * audioWithOffset.sampleRate * chunkSize,
+        );
 
         const chunkData = audioWithOffset.data.slice(startSample, endSample);
         const audioSample = {
@@ -431,24 +442,32 @@ describe("FESK Integration Tests", () => {
         }
       }
 
-      console.log(`Final state: ${decoder.getState().phase}, trits: ${decoder.getState().tritBuffer.length}`);
+      console.log(
+        `Final state: ${decoder.getState().phase}, trits: ${decoder.getState().tritBuffer.length}`,
+      );
 
       if (decodedFrame && decodedFrame.isValid) {
         // SUCCESS! Verify we decoded "test"
         const message = new TextDecoder().decode(decodedFrame.payload);
         console.log(`🎉 Successfully decoded: "${message}"`);
         expect(message).toBe("test");
-        expect(decodedFrame.header.payloadLength).toBe(decodedFrame.payload.length);
+        expect(decodedFrame.header.payloadLength).toBe(
+          decodedFrame.payload.length,
+        );
       } else {
         // FAIL - we must decode to "test" for this test to pass
         console.log("❌ Failed to decode fesk1.wav to 'test' message");
-        console.log(`Final state: ${decoder.getState().phase}, trits: ${decoder.getState().tritBuffer.length}`);
+        console.log(
+          `Final state: ${decoder.getState().phase}, trits: ${decoder.getState().tritBuffer.length}`,
+        );
 
         // Show progress for debugging
-        if (lastState === 'sync') {
+        if (lastState === "sync") {
           console.log("✅ Reached sync phase but failed to complete");
-        } else if (lastState === 'payload') {
-          console.log("✅ Reached payload phase but failed to decode valid frame");
+        } else if (lastState === "payload") {
+          console.log(
+            "✅ Reached payload phase but failed to decode valid frame",
+          );
         }
 
         // Test must fail - we require successful decode to "test"
@@ -465,18 +484,27 @@ describe("FESK Integration Tests", () => {
 
       // Read WAV file starting after initial silence
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-      const audioWithOffset = await WavReader.readWavFileWithOffset(wavPath, 0.4);
+      const audioWithOffset = await WavReader.readWavFileWithOffset(
+        wavPath,
+        0.4,
+      );
 
       const chunkSize = 0.1;
-      const totalChunks = Math.floor(audioWithOffset.data.length / (audioWithOffset.sampleRate * chunkSize));
+      const totalChunks = Math.floor(
+        audioWithOffset.data.length / (audioWithOffset.sampleRate * chunkSize),
+      );
 
       const decoder = new FeskDecoder();
       let decodedFrame = null;
 
       // Process chunks until we get a decoded frame
       for (let i = 0; i < Math.min(70, totalChunks); i++) {
-        const startSample = Math.floor(i * audioWithOffset.sampleRate * chunkSize);
-        const endSample = Math.floor((i + 1) * audioWithOffset.sampleRate * chunkSize);
+        const startSample = Math.floor(
+          i * audioWithOffset.sampleRate * chunkSize,
+        );
+        const endSample = Math.floor(
+          (i + 1) * audioWithOffset.sampleRate * chunkSize,
+        );
 
         const chunkData = audioWithOffset.data.slice(startSample, endSample);
         const audioSample = {
@@ -515,9 +543,13 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioChunks = await WavReader.readWavFileInChunks(wavPath, 0.1); // 100ms chunks
 
-      console.log(`Analyzing ${audioChunks.length} audio chunks for tone detection`);
+      console.log(
+        `Analyzing ${audioChunks.length} audio chunks for tone detection`,
+      );
       console.log(`Sample rate: ${audioChunks[0].sampleRate} Hz`);
-      console.log(`Expected tone frequencies: ${DEFAULT_CONFIG.toneFrequencies} Hz`);
+      console.log(
+        `Expected tone frequencies: ${DEFAULT_CONFIG.toneFrequencies} Hz`,
+      );
 
       // Create tone detector
       const toneDetector = new ToneDetector(DEFAULT_CONFIG);
@@ -534,33 +566,44 @@ describe("FESK Integration Tests", () => {
           totalToneDetections += toneDetections.length;
           for (const detection of toneDetections) {
             toneFrequencies.push(detection.frequency);
-            if (i < 10) { // Log first 10 chunks with detections
-              console.log(`Chunk ${i}: Detected tone at ${detection.frequency.toFixed(1)} Hz (confidence: ${detection.confidence.toFixed(3)})`);
+            if (i < 10) {
+              // Log first 10 chunks with detections
+              console.log(
+                `Chunk ${i}: Detected tone at ${detection.frequency.toFixed(1)} Hz (confidence: ${detection.confidence.toFixed(3)})`,
+              );
             }
           }
         }
       }
 
-      console.log(`Total tone detections in first ${chunksToAnalyze} chunks: ${totalToneDetections}`);
+      console.log(
+        `Total tone detections in first ${chunksToAnalyze} chunks: ${totalToneDetections}`,
+      );
 
       if (toneFrequencies.length > 0) {
-        const uniqueFreqs = [...new Set(toneFrequencies.map(f => Math.round(f/10)*10))].sort((a,b) => a-b);
+        const uniqueFreqs = [
+          ...new Set(toneFrequencies.map((f) => Math.round(f / 10) * 10)),
+        ].sort((a, b) => a - b);
         console.log(`Unique tone frequencies detected: ${uniqueFreqs} Hz`);
 
         // Check if detected frequencies are close to expected ones
         const [f0, f1, f2] = DEFAULT_CONFIG.toneFrequencies;
         const tolerance = 100; // Hz
 
-        const hasF0 = toneFrequencies.some(f => Math.abs(f - f0) < tolerance);
-        const hasF1 = toneFrequencies.some(f => Math.abs(f - f1) < tolerance);
-        const hasF2 = toneFrequencies.some(f => Math.abs(f - f2) < tolerance);
+        const hasF0 = toneFrequencies.some((f) => Math.abs(f - f0) < tolerance);
+        const hasF1 = toneFrequencies.some((f) => Math.abs(f - f1) < tolerance);
+        const hasF2 = toneFrequencies.some((f) => Math.abs(f - f2) < tolerance);
 
-        console.log(`Detected expected frequencies: F0(${f0}Hz)=${hasF0}, F1(${f1}Hz)=${hasF1}, F2(${f2}Hz)=${hasF2}`);
+        console.log(
+          `Detected expected frequencies: F0(${f0}Hz)=${hasF0}, F1(${f1}Hz)=${hasF1}, F2(${f2}Hz)=${hasF2}`,
+        );
 
         // Expect at least some tone detections
         expect(totalToneDetections).toBeGreaterThan(0);
       } else {
-        console.log("No tones detected - audio may be silent or frequencies don't match expected range");
+        console.log(
+          "No tones detected - audio may be silent or frequencies don't match expected range",
+        );
         expect(totalToneDetections).toBe(0); // This confirms our finding
       }
     });
@@ -575,14 +618,17 @@ describe("FESK Integration Tests", () => {
 
       // Known tone sequence for "test" message in fesk1.wav
       const expectedToneSequence = [
-        2,0,2,0,2,0,2,0,2,0,2,0,2,2,2,2,2,0,0,2,2,0,2,0,2,
-        1,0,1,1,0,0,1,0,1,2,2,1,0,2,0,1,1,0,1,1,1,1,1,2,2,1,0,2,2,1,0,1,0,2,1,2,0,2,2,1,0
+        2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
+        2, 1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1,
+        2, 2, 1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 2, 2, 1, 0,
       ];
 
       // Read audio file
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const fullAudio = await WavReader.readWavFile(wavPath);
-      console.log(`Audio: ${fullAudio.data.length} samples at ${fullAudio.sampleRate}Hz (${(fullAudio.data.length/fullAudio.sampleRate).toFixed(2)}s)`);
+      console.log(
+        `Audio: ${fullAudio.data.length} samples at ${fullAudio.sampleRate}Hz (${(fullAudio.data.length / fullAudio.sampleRate).toFixed(2)}s)`,
+      );
 
       // Process audio to extract tone sequence - we'll work backwards from the known result
       // Since we KNOW this is "test", let's find the correct way to extract it
@@ -593,14 +639,21 @@ describe("FESK Integration Tests", () => {
       const chunkApproaches = [
         { chunkSize: 0.02, name: "20ms chunks" },
         { chunkSize: 0.05, name: "50ms chunks" },
-        { chunkSize: 0.1, name: "100ms chunks" }
+        { chunkSize: 0.1, name: "100ms chunks" },
       ];
 
       for (const approach of chunkApproaches) {
         console.log(`\n--- Trying ${approach.name} ---`);
 
-        const audioChunks = await WavReader.readWavFileInChunks(wavPath, approach.chunkSize);
-        const allDetections: Array<{time: number, freq: number, conf: number}> = [];
+        const audioChunks = await WavReader.readWavFileInChunks(
+          wavPath,
+          approach.chunkSize,
+        );
+        const allDetections: Array<{
+          time: number;
+          freq: number;
+          conf: number;
+        }> = [];
 
         // Collect all tone detections
         for (let i = 0; i < audioChunks.length; i++) {
@@ -612,7 +665,7 @@ describe("FESK Integration Tests", () => {
             allDetections.push({
               time,
               freq: tone.frequency,
-              conf: tone.confidence
+              conf: tone.confidence,
             });
           }
         }
@@ -633,7 +686,8 @@ describe("FESK Integration Tests", () => {
         // Try different symbol durations
         for (const testDuration of [80, 85, 90, 93.75, 100, 110, 120]) {
           // Try different start times
-          for (let startTime = 0; startTime < 500; startTime += 10) { // Try first 500ms
+          for (let startTime = 0; startTime < 500; startTime += 10) {
+            // Try first 500ms
             const extractedSymbols: number[] = [];
 
             // Extract symbols at this timing
@@ -642,14 +696,23 @@ describe("FESK Integration Tests", () => {
               const windowStart = centerTime - testDuration * 0.3;
               const windowEnd = centerTime + testDuration * 0.3;
 
-              const windowDetections = allDetections.filter(d =>
-                d.time >= windowStart && d.time <= windowEnd
+              const windowDetections = allDetections.filter(
+                (d) => d.time >= windowStart && d.time <= windowEnd,
               );
 
               if (windowDetections.length > 0) {
                 // Find highest confidence detection in window
-                const best = windowDetections.reduce((a, b) => a.conf > b.conf ? a : b);
-                const symbol = best.freq === 2400 ? 0 : best.freq === 3000 ? 1 : best.freq === 3600 ? 2 : -1;
+                const best = windowDetections.reduce((a, b) =>
+                  a.conf > b.conf ? a : b,
+                );
+                const symbol =
+                  best.freq === 2400
+                    ? 0
+                    : best.freq === 3000
+                      ? 1
+                      : best.freq === 3600
+                        ? 2
+                        : -1;
                 if (symbol >= 0) {
                   extractedSymbols.push(symbol);
                 }
@@ -658,7 +721,10 @@ describe("FESK Integration Tests", () => {
 
             // Score this extraction
             let matches = 0;
-            const compareLen = Math.min(extractedSymbols.length, expectedToneSequence.length);
+            const compareLen = Math.min(
+              extractedSymbols.length,
+              expectedToneSequence.length,
+            );
             for (let i = 0; i < compareLen; i++) {
               if (extractedSymbols[i] === expectedToneSequence[i]) {
                 matches++;
@@ -666,7 +732,10 @@ describe("FESK Integration Tests", () => {
             }
 
             const score = compareLen > 0 ? matches / compareLen : 0;
-            if (score > bestMatch && extractedSymbols.length >= expectedToneSequence.length * 0.9) {
+            if (
+              score > bestMatch &&
+              extractedSymbols.length >= expectedToneSequence.length * 0.9
+            ) {
               bestMatch = score;
               bestExtracted = [...extractedSymbols];
               bestStartTime = startTime;
@@ -675,20 +744,28 @@ describe("FESK Integration Tests", () => {
           }
         }
 
-        console.log(`Best: ${(bestMatch * 100).toFixed(1)}% match with ${bestExtracted.length} symbols`);
-        console.log(`Timing: ${bestStartTime}ms start, ${bestDuration}ms duration`);
-        console.log(`Expected: ${expectedToneSequence.slice(0, 10).join(',')}`);
-        console.log(`Got:      ${bestExtracted.slice(0, 10).join(',')}`);
+        console.log(
+          `Best: ${(bestMatch * 100).toFixed(1)}% match with ${bestExtracted.length} symbols`,
+        );
+        console.log(
+          `Timing: ${bestStartTime}ms start, ${bestDuration}ms duration`,
+        );
+        console.log(`Expected: ${expectedToneSequence.slice(0, 10).join(",")}`);
+        console.log(`Got:      ${bestExtracted.slice(0, 10).join(",")}`);
 
         // If we got a good match, try decoding it
         if (bestMatch > 0.8 && bestExtracted.length >= 60) {
           console.log(`Attempting decode...`);
           try {
             const result = decodeCompleteSequence(bestExtracted);
-            console.log(`Decoded: "${result.message}" (valid: ${result.isValid})`);
+            console.log(
+              `Decoded: "${result.message}" (valid: ${result.isValid})`,
+            );
 
             if (result.isValid && result.message === "test") {
-              console.log(`✅ SUCCESS! Correctly decoded "test" from fesk1.wav`);
+              console.log(
+                `✅ SUCCESS! Correctly decoded "test" from fesk1.wav`,
+              );
               expect(result.message).toBe("test");
               expect(result.isValid).toBe(true);
               return;
@@ -700,7 +777,9 @@ describe("FESK Integration Tests", () => {
       }
 
       // If we get here, we didn't successfully extract the right sequence
-      throw new Error("Could not extract correct tone sequence from fesk1.wav - audio-to-tones conversion needs debugging");
+      throw new Error(
+        "Could not extract correct tone sequence from fesk1.wav - audio-to-tones conversion needs debugging",
+      );
     });
 
     it("should decode fesk1.wav automatically with debugging", async () => {
@@ -714,25 +793,39 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
 
       // Start at 400ms where we know the signal is
-      const audioWithOffset = await WavReader.readWavFileWithOffset(wavPath, 0.4);
+      const audioWithOffset = await WavReader.readWavFileWithOffset(
+        wavPath,
+        0.4,
+      );
 
       const toneDetector = new ToneDetector(DEFAULT_CONFIG);
       const preambleDetector = new PreambleDetector(DEFAULT_CONFIG);
 
       console.log(`Processing audio starting at 400ms...`);
-      console.log(`Expected preamble: ${DEFAULT_CONFIG.preambleBits.join(',')}`);
-      console.log(`Expected symbol duration: ${DEFAULT_CONFIG.symbolDuration * 1000}ms`);
+      console.log(
+        `Expected preamble: ${DEFAULT_CONFIG.preambleBits.join(",")}`,
+      );
+      console.log(
+        `Expected symbol duration: ${DEFAULT_CONFIG.symbolDuration * 1000}ms`,
+      );
 
       // Process in chunks that align with symbol timing
       const chunkSize = DEFAULT_CONFIG.symbolDuration; // 100ms chunks to match symbol duration
-      const totalChunks = Math.floor(audioWithOffset.data.length / (audioWithOffset.sampleRate * chunkSize));
+      const totalChunks = Math.floor(
+        audioWithOffset.data.length / (audioWithOffset.sampleRate * chunkSize),
+      );
 
       let symbolCount = 0;
       let lastPreambleResult = null;
 
-      for (let i = 0; i < Math.min(20, totalChunks); i++) { // First 1 second
-        const startSample = Math.floor(i * audioWithOffset.sampleRate * chunkSize);
-        const endSample = Math.floor((i + 1) * audioWithOffset.sampleRate * chunkSize);
+      for (let i = 0; i < Math.min(20, totalChunks); i++) {
+        // First 1 second
+        const startSample = Math.floor(
+          i * audioWithOffset.sampleRate * chunkSize,
+        );
+        const endSample = Math.floor(
+          (i + 1) * audioWithOffset.sampleRate * chunkSize,
+        );
 
         const chunkData = audioWithOffset.data.slice(startSample, endSample);
         const audioSample = {
@@ -745,19 +838,37 @@ describe("FESK Integration Tests", () => {
         const toneDetections = toneDetector.detectTones(audioSample);
 
         if (toneDetections.length > 0 && i < 10) {
-          console.log(`Chunk ${i} (${audioSample.timestamp}ms): ${toneDetections.length} tones`);
+          console.log(
+            `Chunk ${i} (${audioSample.timestamp}ms): ${toneDetections.length} tones`,
+          );
           for (const tone of toneDetections) {
-            const symbol = tone.frequency === 2400 ? 0 : tone.frequency === 3000 ? 1 : tone.frequency === 3600 ? 2 : '?';
-            console.log(`  ${tone.frequency}Hz -> symbol ${symbol} (conf: ${tone.confidence.toFixed(2)})`);
+            const symbol =
+              tone.frequency === 2400
+                ? 0
+                : tone.frequency === 3000
+                  ? 1
+                  : tone.frequency === 3600
+                    ? 2
+                    : "?";
+            console.log(
+              `  ${tone.frequency}Hz -> symbol ${symbol} (conf: ${tone.confidence.toFixed(2)})`,
+            );
           }
         }
 
         // Process through preamble detector
-        const preambleResult = preambleDetector.processToneDetections(toneDetections, audioSample.timestamp);
+        const preambleResult = preambleDetector.processToneDetections(
+          toneDetections,
+          audioSample.timestamp,
+        );
 
         if (preambleResult?.detected) {
-          console.log(`🎉 PREAMBLE DETECTED at chunk ${i} (${audioSample.timestamp}ms)!`);
-          console.log(`Estimated symbol duration: ${preambleResult.estimatedSymbolDuration * 1000}ms`);
+          console.log(
+            `🎉 PREAMBLE DETECTED at chunk ${i} (${audioSample.timestamp}ms)!`,
+          );
+          console.log(
+            `Estimated symbol duration: ${preambleResult.estimatedSymbolDuration * 1000}ms`,
+          );
           lastPreambleResult = preambleResult;
           break;
         }
@@ -778,7 +889,10 @@ describe("FESK Integration Tests", () => {
         // Try processing one more chunk to see internal state
         if (totalChunks > 0) {
           const debugChunk = {
-            data: audioWithOffset.data.slice(0, Math.floor(audioWithOffset.sampleRate * 0.05)),
+            data: audioWithOffset.data.slice(
+              0,
+              Math.floor(audioWithOffset.sampleRate * 0.05),
+            ),
             sampleRate: audioWithOffset.sampleRate,
             timestamp: audioWithOffset.timestamp,
           };
@@ -789,8 +903,17 @@ describe("FESK Integration Tests", () => {
           if (debugTones.length > 0) {
             console.log("First few tones:");
             debugTones.slice(0, 5).forEach((tone, idx) => {
-              const symbol = tone.frequency === 2400 ? 0 : tone.frequency === 3000 ? 1 : tone.frequency === 3600 ? 2 : '?';
-              console.log(`  ${idx}: ${tone.frequency}Hz -> symbol ${symbol} (conf: ${tone.confidence.toFixed(2)})`);
+              const symbol =
+                tone.frequency === 2400
+                  ? 0
+                  : tone.frequency === 3000
+                    ? 1
+                    : tone.frequency === 3600
+                      ? 2
+                      : "?";
+              console.log(
+                `  ${idx}: ${tone.frequency}Hz -> symbol ${symbol} (conf: ${tone.confidence.toFixed(2)})`,
+              );
             });
           }
         }

@@ -68,13 +68,13 @@ export class WavReader {
   ): Promise<AudioSample> {
     const fullAudio = await this.readWavFile(filePath);
     const offsetSamples = Math.floor(offsetSeconds * fullAudio.sampleRate);
-    
+
     if (offsetSamples >= fullAudio.data.length) {
       throw new Error(`Offset ${offsetSeconds}s exceeds audio duration`);
     }
 
     const offsetData = fullAudio.data.slice(offsetSamples);
-    
+
     return {
       data: offsetData,
       sampleRate: fullAudio.sampleRate,
