@@ -142,7 +142,7 @@ export class FeskDecoder {
   ): Frame | null {
     // Collect symbol candidates from all detections in this chunk
     const candidates: SymbolCandidate[] = [];
-    
+
     for (const detection of toneDetections) {
       const symbol = this.toneToSymbol(detection.frequency);
       if (symbol !== null) {
@@ -160,19 +160,21 @@ export class FeskDecoder {
     // Remove old candidates (keep only last 300ms worth)
     const windowTimeMs = 300;
     this.symbolCandidates = this.symbolCandidates.filter(
-      candidate => timestamp - candidate.timestamp < windowTimeMs
+      (candidate) => timestamp - candidate.timestamp < windowTimeMs,
     );
 
     // Commit symbol every 100ms (symbol period)
     const symbolPeriodMs = 100;
     if (timestamp - this.lastCommittedSymbolTime >= symbolPeriodMs) {
       const committedSymbol = this.performMajorityVoting(timestamp);
-      
+
       if (committedSymbol !== null) {
         // Check for pilot sequences [0,2] every 64 trits
         if (this.state.tritCount > 0 && this.state.tritCount % 64 === 0) {
           if (committedSymbol === 0) {
-            console.log(`Potential pilot start at trit ${this.state.tritCount}`);
+            console.log(
+              `Potential pilot start at trit ${this.state.tritCount}`,
+            );
           }
         }
 
@@ -191,8 +193,9 @@ export class FeskDecoder {
       } else {
         // Fall back to simple best detection if majority voting fails
         if (toneDetections.length > 0) {
-          const bestDetection = toneDetections.reduce((best: any, current: any) =>
-            current.confidence > best.confidence ? current : best,
+          const bestDetection = toneDetections.reduce(
+            (best: any, current: any) =>
+              current.confidence > best.confidence ? current : best,
           );
 
           const symbol = this.toneToSymbol(bestDetection.frequency);
@@ -224,7 +227,7 @@ export class FeskDecoder {
 
     // Only consider recent candidates (last 120ms for tighter focus)
     const recentCandidates = this.symbolCandidates.filter(
-      candidate => currentTimestamp - candidate.timestamp < 120
+      (candidate) => currentTimestamp - candidate.timestamp < 120,
     );
 
     if (recentCandidates.length === 0) {
@@ -238,22 +241,22 @@ export class FeskDecoder {
 
     // Count votes for each symbol, weighted by confidence and recency
     const votes = new Map<number, number>();
-    
+
     for (const candidate of recentCandidates) {
-      // Weight heavily by confidence and recency 
+      // Weight heavily by confidence and recency
       const age = currentTimestamp - candidate.timestamp;
       const recencyWeight = Math.exp(-age / 40); // Faster decay over 40ms
-      
+
       // Square the confidence to emphasize high-confidence detections
       const weight = Math.pow(candidate.confidence, 1.5) * recencyWeight;
-      
+
       votes.set(candidate.symbol, (votes.get(candidate.symbol) || 0) + weight);
     }
 
     // Find symbol with highest weighted vote
     let bestSymbol: number | null = null;
     let bestScore = 0;
-    
+
     for (const [symbol, score] of votes.entries()) {
       if (score > bestScore) {
         bestScore = score;
@@ -360,6 +363,88 @@ export class FeskDecoder {
 
   getState(): DecoderState {
     return { ...this.state };
+  }
+
+  /**
+   * Process a complete symbol sequence directly (for testing)
+   * Skips preamble/sync detection and goes straight to payload processing
+   */
+  processSymbolSequence(symbols: number[]): Frame | null {
+    // Reset to payload state
+    this.state.phase = "payload";
+    this.state.tritBuffer = [];
+    this.state.tritCount = 0;
+
+    // Add all symbols to trit buffer
+    for (const symbol of symbols) {
+      this.state.tritBuffer.push(symbol);
+      this.state.tritCount++;
+    }
+
+    return this.attemptDecode();
+  }
+
+  /**
+   * Decode a trit sequence directly (for testing)
+   * Bypasses all protocol overhead and decodes raw payload trits
+   */
+  static decodeTrits(trits: number[]): Frame | null {
+    const decoder = new FeskDecoder();
+
+    // Use the private methods directly
+    const cleanedTrits = decoder.removePilots(trits);
+    return decoder.decodeTritsInternal(cleanedTrits);
+  }
+
+  private decodeTritsInternal(trits: number[]): Frame | null {
+    try {
+      // Convert trits to bytes using canonical MS-first algorithm
+      const decoder = new CanonicalTritDecoder();
+      for (const trit of trits) {
+        decoder.addTrit(trit);
+      }
+
+      const allBytes = decoder.getBytes();
+      if (allBytes.length < 4) {
+        return null;
+      }
+
+      // Parse header to get payload length
+      const descrambler = new LFSRDescrambler();
+      const headerHi = descrambler.descrambleByte(allBytes[0]);
+      const headerLo = descrambler.descrambleByte(allBytes[1]);
+      const payloadLength = (headerHi << 8) | headerLo;
+
+      // Validate payload length and total size
+      if (
+        payloadLength <= 0 ||
+        payloadLength > 64 ||
+        allBytes.length < 2 + payloadLength + 2
+      ) {
+        return null;
+      }
+
+      // Descramble payload
+      const payloadScrambled = allBytes.slice(2, 2 + payloadLength);
+      const payload = new Uint8Array(payloadLength);
+      for (let i = 0; i < payloadLength; i++) {
+        payload[i] = descrambler.descrambleByte(payloadScrambled[i]);
+      }
+
+      // Extract CRC (unscrambled in new format)
+      const crcBytes = allBytes.slice(2 + payloadLength, 2 + payloadLength + 2);
+      const receivedCrc = (crcBytes[0] << 8) | crcBytes[1];
+      const calculatedCrc = CRC16.calculate(payload);
+
+      return {
+        header: { payloadLength },
+        payload,
+        crc: receivedCrc,
+        isValid: receivedCrc === calculatedCrc,
+      };
+    } catch (error) {
+      return null;
+    }
   }
 
   reset(): void {
