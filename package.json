@@ -12,7 +12,7 @@
     "prettier-check": "prettier --check src/*",
     "unit": "npm test",
     "check-exports": "attw --pack .",
-    "type-check": "npx tsc --noEmit && npm run check-exports"
+    "type-check": "npx tsc && npm run check-exports"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
