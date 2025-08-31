@@ -74,8 +74,8 @@ export class ToneDetector {
     const confidence = totalEnergy > 0 ? maxEnergy / totalEnergy : 0;
 
     // Only return detection if confidence is above threshold
-    if (confidence > 0.4) {
-      // Require at least 40% of energy in the detected tone
+    if (confidence > 0.3) {
+      // Require at least 30% of energy in the detected tone
       return {
         frequency: this.config.toneFrequencies[maxIndex],
         magnitude: maxEnergy,

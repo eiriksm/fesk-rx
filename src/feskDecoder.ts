@@ -16,6 +16,12 @@ interface DecoderState {
   tritCount: number;
 }
 
+interface SymbolCandidate {
+  symbol: number;
+  confidence: number;
+  timestamp: number;
+}
+
 /**
  * Complete FESK decoder implementing the new TX format
  */
@@ -25,6 +31,9 @@ export class FeskDecoder {
   private preambleDetector: PreambleDetector;
   private syncDetector: SyncDetector;
   private state: DecoderState;
+  private symbolCandidates: SymbolCandidate[] = [];
+  private lastCommittedSymbolTime: number = 0;
+  private timingOptimized: boolean = false;
 
   constructor(config: FeskConfig = DEFAULT_CONFIG) {
     this.config = config;
@@ -117,6 +126,8 @@ export class FeskDecoder {
           this.state.phase = "payload";
           this.state.tritBuffer = [];
           this.state.tritCount = 0;
+          this.symbolCandidates = [];
+          this.lastCommittedSymbolTime = timestamp;
           return null;
         }
       }
@@ -129,42 +140,128 @@ export class FeskDecoder {
     toneDetections: any[],
     timestamp: number,
   ): Frame | null {
-    // Use symbol decimation - take the best detection per chunk
-    if (toneDetections.length > 0) {
-      const bestDetection = toneDetections.reduce((best: any, current: any) =>
-        current.confidence > best.confidence ? current : best,
-      );
-
-      const symbol = this.toneToSymbol(bestDetection.frequency);
+    // Collect symbol candidates from all detections in this chunk
+    const candidates: SymbolCandidate[] = [];
+    
+    for (const detection of toneDetections) {
+      const symbol = this.toneToSymbol(detection.frequency);
       if (symbol !== null) {
+        candidates.push({
+          symbol,
+          confidence: detection.confidence,
+          timestamp,
+        });
+      }
+    }
+
+    // Add candidates to our voting window
+    this.symbolCandidates.push(...candidates);
+
+    // Remove old candidates (keep only last 300ms worth)
+    const windowTimeMs = 300;
+    this.symbolCandidates = this.symbolCandidates.filter(
+      candidate => timestamp - candidate.timestamp < windowTimeMs
+    );
+
+    // Commit symbol every 100ms (symbol period)
+    const symbolPeriodMs = 100;
+    if (timestamp - this.lastCommittedSymbolTime >= symbolPeriodMs) {
+      const committedSymbol = this.performMajorityVoting(timestamp);
+      
+      if (committedSymbol !== null) {
         // Check for pilot sequences [0,2] every 64 trits
         if (this.state.tritCount > 0 && this.state.tritCount % 64 === 0) {
-          // Look ahead for pilot sequence
-          if (symbol === 0) {
-            // This might be the start of a pilot, we'll handle it in the next detection
-            console.log(
-              `Potential pilot start at trit ${this.state.tritCount}`,
-            );
+          if (committedSymbol === 0) {
+            console.log(`Potential pilot start at trit ${this.state.tritCount}`);
           }
-          // For now, just continue - pilot removal will be handled later
         }
 
-        this.state.tritBuffer.push(symbol);
+        this.state.tritBuffer.push(committedSymbol);
         this.state.tritCount++;
+        this.lastCommittedSymbolTime = timestamp;
 
-        // Try to decode when we have a reasonable amount of data
+        // Try to decode when we have enough data
         if (this.state.tritBuffer.length >= 20) {
-          // Minimum for header + some payload
           const frame = this.attemptDecode();
           if (frame) {
             this.reset();
             return frame;
           }
         }
+      } else {
+        // Fall back to simple best detection if majority voting fails
+        if (toneDetections.length > 0) {
+          const bestDetection = toneDetections.reduce((best: any, current: any) =>
+            current.confidence > best.confidence ? current : best,
+          );
+
+          const symbol = this.toneToSymbol(bestDetection.frequency);
+          if (symbol !== null) {
+            this.state.tritBuffer.push(symbol);
+            this.state.tritCount++;
+            this.lastCommittedSymbolTime = timestamp;
+
+            // Try to decode when we have enough data
+            if (this.state.tritBuffer.length >= 20) {
+              const frame = this.attemptDecode();
+              if (frame) {
+                this.reset();
+                return frame;
+              }
+            }
+          }
+        }
       }
     }
 
     return null;
+  }
+
+  private performMajorityVoting(currentTimestamp: number): number | null {
+    if (this.symbolCandidates.length === 0) {
+      return null;
+    }
+
+    // Only consider recent candidates (last 120ms for tighter focus)
+    const recentCandidates = this.symbolCandidates.filter(
+      candidate => currentTimestamp - candidate.timestamp < 120
+    );
+
+    if (recentCandidates.length === 0) {
+      return null;
+    }
+
+    // For synthetic audio or single detections, just return the best recent candidate
+    if (recentCandidates.length === 1) {
+      return recentCandidates[0].symbol;
+    }
+
+    // Count votes for each symbol, weighted by confidence and recency
+    const votes = new Map<number, number>();
+    
+    for (const candidate of recentCandidates) {
+      // Weight heavily by confidence and recency 
+      const age = currentTimestamp - candidate.timestamp;
+      const recencyWeight = Math.exp(-age / 40); // Faster decay over 40ms
+      
+      // Square the confidence to emphasize high-confidence detections
+      const weight = Math.pow(candidate.confidence, 1.5) * recencyWeight;
+      
+      votes.set(candidate.symbol, (votes.get(candidate.symbol) || 0) + weight);
+    }
+
+    // Find symbol with highest weighted vote
+    let bestSymbol: number | null = null;
+    let bestScore = 0;
+    
+    for (const [symbol, score] of votes.entries()) {
+      if (score > bestScore) {
+        bestScore = score;
+        bestSymbol = symbol;
+      }
+    }
+
+    return bestSymbol;
   }
 
   private attemptDecode(): Frame | null {
@@ -279,6 +376,9 @@ export class FeskDecoder {
       tritCount: 0,
     };
 
+    this.symbolCandidates = [];
+    this.lastCommittedSymbolTime = 0;
+    this.timingOptimized = false;
     this.preambleDetector.reset();
     this.syncDetector.reset();
   }
