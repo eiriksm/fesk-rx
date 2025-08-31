@@ -801,14 +801,6 @@ describe("FESK Integration Tests", () => {
       const toneDetector = new ToneDetector(DEFAULT_CONFIG);
       const preambleDetector = new PreambleDetector(DEFAULT_CONFIG);
 
-      console.log(`Processing audio starting at 400ms...`);
-      console.log(
-        `Expected preamble: ${DEFAULT_CONFIG.preambleBits.join(",")}`,
-      );
-      console.log(
-        `Expected symbol duration: ${DEFAULT_CONFIG.symbolDuration * 1000}ms`,
-      );
-
       // Process in chunks that align with symbol timing
       const chunkSize = DEFAULT_CONFIG.symbolDuration; // 100ms chunks to match symbol duration
       const totalChunks = Math.floor(

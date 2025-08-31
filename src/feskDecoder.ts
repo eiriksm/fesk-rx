@@ -7,7 +7,7 @@ import { CanonicalTritDecoder } from "./utils/canonicalTritDecoder";
 import { LFSRDescrambler } from "./utils/lfsrDescrambler";
 import { CRC16 } from "./utils/crc16";
 
-interface DecoderState {
+export interface DecoderState {
   phase: "searching" | "sync" | "payload";
   tritBuffer: number[];
   estimatedSymbolDuration: number;
