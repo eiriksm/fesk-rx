@@ -1,7 +1,13 @@
 import { ToneDetector } from "./toneDetector";
 import { PreambleDetector } from "./preambleDetector";
 import { SyncDetector } from "./syncDetector";
-import { AudioSample, DecoderState, Frame, SymbolDetection, ToneDetection } from "./types";
+import {
+  AudioSample,
+  DecoderState,
+  Frame,
+  SymbolDetection,
+  ToneDetection,
+} from "./types";
 import { FeskConfig, DEFAULT_CONFIG } from "./config";
 import { TritDecoder } from "./utils/tritDecoder";
 import { LFSRDescrambler } from "./utils/lfsrDescrambler";

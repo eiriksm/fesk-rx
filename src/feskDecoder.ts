@@ -90,7 +90,7 @@ export class FeskDecoder {
   async processAudioComplete(
     audioData: Float32Array,
     sampleRate: number,
-    chunkSizeMs: number = 100
+    chunkSizeMs: number = 100,
   ): Promise<Frame | null> {
     const chunkSize = Math.floor(sampleRate * (chunkSizeMs / 1000));
     let chunkCount = 0;
@@ -98,7 +98,7 @@ export class FeskDecoder {
     for (let i = 0; i < audioData.length; i += chunkSize) {
       const chunkEnd = Math.min(i + chunkSize, audioData.length);
       const chunk = audioData.slice(i, chunkEnd);
-      
+
       if (chunk.length < chunkSize) break;
 
       const timestamp = chunkCount * chunkSizeMs;
@@ -109,18 +109,18 @@ export class FeskDecoder {
       };
 
       const frame = this.processAudio(audioSample);
-      
+
       if (frame && frame.isValid) {
         return frame;
       }
 
       chunkCount++;
       // Safety limit - don't process more than 30 seconds of audio
-      if (chunkCount > (30000 / chunkSizeMs)) break;
-      
+      if (chunkCount > 30000 / chunkSizeMs) break;
+
       // Yield to event loop every 10 chunks to keep UI responsive
       if (chunkCount % 10 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
       }
     }
 
@@ -137,11 +137,15 @@ export class FeskDecoder {
   async processWavFile(
     wavPath: string,
     offsetSec: number = 0,
-    chunkSizeMs: number = 100
+    chunkSizeMs: number = 100,
   ): Promise<Frame | null> {
     const { WavReader } = await import("./utils/wavReader");
     const audioData = await WavReader.readWavFileWithOffset(wavPath, offsetSec);
-    return this.processAudioComplete(audioData.data, audioData.sampleRate, chunkSizeMs);
+    return this.processAudioComplete(
+      audioData.data,
+      audioData.sampleRate,
+      chunkSizeMs,
+    );
   }
 
   /**
@@ -156,14 +160,14 @@ export class FeskDecoder {
   } {
     const minTritsForDecode = 20;
     // const maxExpectedTrits = 200; // Reasonable upper bound
-    
+
     let progressPercent = 0;
     let estimatedComplete = false;
 
     if (this.state.phase === "payload") {
       progressPercent = Math.min(
         (this.state.tritCount / minTritsForDecode) * 100,
-        100
+        100,
       );
       estimatedComplete = this.state.tritCount >= minTritsForDecode;
     } else if (this.state.phase === "sync") {
@@ -225,8 +229,9 @@ export class FeskDecoder {
   ): Frame | null {
     // Use symbol decimation - take the best detection per chunk (same as preamble detector)
     if (toneDetections.length > 0) {
-      const bestDetection = toneDetections.reduce((best: ToneDetection, current: ToneDetection) =>
-        current.confidence > best.confidence ? current : best,
+      const bestDetection = toneDetections.reduce(
+        (best: ToneDetection, current: ToneDetection) =>
+          current.confidence > best.confidence ? current : best,
       );
 
       const symbol = this.toneToSymbol(bestDetection.frequency);
@@ -489,14 +494,14 @@ export class FeskDecoder {
    */
   processCompleteTransmission(symbols: number[]): Frame | null {
     this.reset();
-    
+
     const chunkSizeMs = 100;
     let currentTime = 0;
-    
+
     for (let i = 0; i < symbols.length; i++) {
       const symbol = symbols[i];
       const timestamp = currentTime;
-      
+
       // Create mock tone detection for this symbol
       const mockToneDetection = {
         frequency: this.state.estimatedFrequencies[symbol],
@@ -506,31 +511,31 @@ export class FeskDecoder {
 
       // Process through the phase handlers directly
       let result: Frame | null = null;
-      
+
       switch (this.state.phase) {
         case "searching":
           result = this.handleSearchingPhase([mockToneDetection], timestamp);
           break;
-          
+
         case "sync":
           result = this.handleSyncPhase([mockToneDetection], timestamp);
           break;
-          
+
         case "payload":
           result = this.handlePayloadPhase([mockToneDetection], timestamp);
           break;
       }
-      
+
       if (result && result.isValid) {
         return result;
       }
-      
+
       currentTime += chunkSizeMs;
-      
+
       // Safety limit
       if (i > 1000) break;
     }
-    
+
     return null;
   }
 

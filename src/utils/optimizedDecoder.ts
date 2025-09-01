@@ -76,9 +76,13 @@ export class OptimizedFeskDecoder {
   async processAudioComplete(
     audioData: Float32Array,
     sampleRate: number,
-    chunkSizeMs: number = 100
+    chunkSizeMs: number = 100,
   ): Promise<Frame | null> {
-    return this.baseDecoder.processAudioComplete(audioData, sampleRate, chunkSizeMs);
+    return this.baseDecoder.processAudioComplete(
+      audioData,
+      sampleRate,
+      chunkSizeMs,
+    );
   }
 
   /**
@@ -91,7 +95,7 @@ export class OptimizedFeskDecoder {
   async processWavFileOptimized(
     wavPath: string,
     offsetSec: number = 0,
-    _chunkSizeMs: number = 100
+    _chunkSizeMs: number = 100,
   ): Promise<Frame | null> {
     return this.decodeWavFile(wavPath, offsetSec);
   }

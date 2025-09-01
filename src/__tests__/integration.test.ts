@@ -49,7 +49,6 @@ describe("FESK Integration Tests", () => {
     };
   }
 
-
   function decodeUptimeSequence(symbols: number[]) {
     const preambleBits = symbols.slice(0, 12).map((s) => (s === 2 ? 1 : 0));
     const expectedPreamble = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
@@ -108,9 +107,8 @@ describe("FESK Integration Tests", () => {
     it('should decode "test" message correctly', () => {
       const testSequence = [
         2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
-        2,
-        1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1, 2,
-        2, 1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 2, 2, 1, 0,
+        2, 1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1,
+        2, 2, 1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 2, 2, 1, 0,
       ];
 
       const result = decodeCompleteSequence(testSequence);
@@ -124,10 +122,9 @@ describe("FESK Integration Tests", () => {
     it('should decode "four56" message correctly', () => {
       const four56Sequence = [
         2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
-        2,
-        1, 0, 2, 1, 1, 1, 0, 0, 2, 1, 0, 0, 1, 0, 2, 1, 2, 2, 2, 0, 2, 0, 2, 1,
-        1, 2, 1, 1, 0, 2, 1, 2, 2, 0, 2, 0, 0, 2, 1, 1, 2, 2, 2, 1, 1, 2, 1, 2,
-        2, 0, 0,
+        2, 1, 0, 2, 1, 1, 1, 0, 0, 2, 1, 0, 0, 1, 0, 2, 1, 2, 2, 2, 0, 2, 0, 2,
+        1, 1, 2, 1, 1, 0, 2, 1, 2, 2, 0, 2, 0, 0, 2, 1, 1, 2, 2, 2, 1, 1, 2, 1,
+        2, 2, 0, 0,
       ];
 
       const result = decodeCompleteSequence(four56Sequence);
@@ -141,9 +138,8 @@ describe("FESK Integration Tests", () => {
     it('should decode "howd" message correctly', () => {
       const howdSequence = [
         2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
-        2,
-        1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 0, 2, 1, 0, 1, 0, 0, 0, 1, 2, 2, 0, 2,
-        0, 1, 0, 1, 1, 0, 2, 0, 0, 1, 1, 0, 2, 2, 2, 2, 2,
+        2, 1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 0, 2, 1, 0, 1, 0, 0, 0, 1, 2, 2, 0,
+        2, 0, 1, 0, 1, 1, 0, 2, 0, 0, 1, 1, 0, 2, 2, 2, 2, 2,
       ];
 
       const result = decodeCompleteSequence(howdSequence);
@@ -157,17 +153,16 @@ describe("FESK Integration Tests", () => {
     it('should decode "the truth is out there" message correctly', async () => {
       const truthSequence = [
         2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
-        2,
-        2, 2, 2, 1, 0, 2, 1, 2, 2, 1, 1, 0, 1, 0, 0, 0, 2, 1, 2, 1, 2, 1, 0, 2,
-        0, 1, 1, 0, 2, 0, 1, 1, 2, 2, 1, 0, 2, 2, 0, 1, 2, 1, 0, 2, 0, 1, 2, 0,
-        0, 2, 0, 0, 0, 2, 0, 1, 2, 1, 0, 0, 0, 1, 1, 1, 0, 2, 1, 2, 1, 2, 1, 0,
-        2, 0, 0, 1, 1, 1, 1, 1, 1, 2, 0, 2, 2, 0, 1, 1, 2, 2, 0, 2, 1, 1, 2, 2,
-        2, 1, 0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 0, 2, 1, 2, 1, 1, 2, 1, 0, 1, 0, 0,
-        2, 2, 0, 0, 1, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2,
+        2, 2, 2, 2, 1, 0, 2, 1, 2, 2, 1, 1, 0, 1, 0, 0, 0, 2, 1, 2, 1, 2, 1, 0,
+        2, 0, 1, 1, 0, 2, 0, 1, 1, 2, 2, 1, 0, 2, 2, 0, 1, 2, 1, 0, 2, 0, 1, 2,
+        0, 0, 2, 0, 0, 0, 2, 0, 1, 2, 1, 0, 0, 0, 1, 1, 1, 0, 2, 1, 2, 1, 2, 1,
+        0, 2, 0, 0, 1, 1, 1, 1, 1, 1, 2, 0, 2, 2, 0, 1, 1, 2, 2, 0, 2, 1, 1, 2,
+        2, 2, 1, 0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 0, 2, 1, 2, 1, 1, 2, 1, 0, 1, 0,
+        0, 2, 2, 0, 0, 1, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2,
       ];
       const { FeskDecoder } = await import("../feskDecoder");
       const decoder = new FeskDecoder();
-      const result = decoder.processSymbolSequence(truthSequence)
+      const result = decoder.processSymbolSequence(truthSequence);
       console.log(result);
     });
 
@@ -176,13 +171,16 @@ describe("FESK Integration Tests", () => {
       const { WavReader } = await import("../utils/wavReader");
 
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-      const audioWithOffset = await WavReader.readWavFileWithOffset(wavPath, 0.4);
+      const audioWithOffset = await WavReader.readWavFileWithOffset(
+        wavPath,
+        0.4,
+      );
 
       const decoder = new FeskDecoder();
       const frame = await decoder.processAudioComplete(
         audioWithOffset.data,
         audioWithOffset.sampleRate,
-        100 // 100ms chunks
+        100, // 100ms chunks
       );
 
       expect(frame).not.toBeNull();
@@ -198,18 +196,17 @@ describe("FESK Integration Tests", () => {
     it("should decode complete uptime message correctly", () => {
       const uptimeSequence = [
         2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
-        2,
-        1, 0, 0, 2, 0, 1, 2, 1, 0, 1, 0, 2, 1, 0, 0, 1, 1, 0, 1, 1, 2, 0, 1, 0,
-        1, 0, 0, 2, 2, 2, 2, 1, 1, 0, 0, 1, 2, 1, 1, 1, 2, 2, 1, 1, 1, 0, 2, 2,
-        2, 2, 2, 1, 0, 1, 2, 1, 1, 0, 2, 1, 0, 1, 2, 2, 0, 2, 2, 1, 2, 2, 0, 1,
-        1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 2, 1, 1, 0, 1, 1, 1, 0, 2, 0, 2, 0, 1, 2,
-        0, 2, 1, 0, 0, 1, 0, 0, 1, 2, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 2, 2,
-        2, 1, 1, 1, 2, 2, 2, 0, 0, 0, 2, 0, 1, 1, 0, 2, 2, 1, 1, 2, 1, 1, 2, 1,
-        1, 1, 0, 2, 2, 2, 2, 2, 1, 2, 2, 1, 0, 0, 1, 2, 0, 0, 1, 2, 1, 0, 0, 2,
-        2, 0, 0, 1, 1, 1, 0, 2, 1, 0, 2, 2, 1, 2, 2, 2, 2, 2, 1, 0, 0, 1, 2, 2,
-        2, 1, 0, 2, 1, 1, 0, 1, 0, 1, 2, 1, 2, 1, 0, 2, 0, 0, 2, 0, 1, 2, 1, 0,
-        2, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 0, 2, 2, 2, 1, 0, 0, 2, 1, 2, 2, 2, 0,
-        2, 1, 0, 2, 0, 2, 1, 2, 0, 2, 0, 2, 0, 0,
+        2, 1, 0, 0, 2, 0, 1, 2, 1, 0, 1, 0, 2, 1, 0, 0, 1, 1, 0, 1, 1, 2, 0, 1,
+        0, 1, 0, 0, 2, 2, 2, 2, 1, 1, 0, 0, 1, 2, 1, 1, 1, 2, 2, 1, 1, 1, 0, 2,
+        2, 2, 2, 2, 1, 0, 1, 2, 1, 1, 0, 2, 1, 0, 1, 2, 2, 0, 2, 2, 1, 2, 2, 0,
+        1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 2, 1, 1, 0, 1, 1, 1, 0, 2, 0, 2, 0, 1,
+        2, 0, 2, 1, 0, 0, 1, 0, 0, 1, 2, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 2,
+        2, 2, 1, 1, 1, 2, 2, 2, 0, 0, 0, 2, 0, 1, 1, 0, 2, 2, 1, 1, 2, 1, 1, 2,
+        1, 1, 1, 0, 2, 2, 2, 2, 2, 1, 2, 2, 1, 0, 0, 1, 2, 0, 0, 1, 2, 1, 0, 0,
+        2, 2, 0, 0, 1, 1, 1, 0, 2, 1, 0, 2, 2, 1, 2, 2, 2, 2, 2, 1, 0, 0, 1, 2,
+        2, 2, 1, 0, 2, 1, 1, 0, 1, 0, 1, 2, 1, 2, 1, 0, 2, 0, 0, 2, 0, 1, 2, 1,
+        0, 2, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 0, 2, 2, 2, 1, 0, 0, 2, 1, 2, 2, 2,
+        0, 2, 1, 0, 2, 0, 2, 1, 2, 0, 2, 0, 2, 0, 0,
       ];
 
       const result = decodeUptimeSequence(uptimeSequence);
@@ -236,9 +233,8 @@ describe("FESK Integration Tests", () => {
     it("should detect CRC mismatch", () => {
       const corruptedSequence = [
         2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
-        2,
-        1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1, 2,
-        2, 1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 0, 0, 0, 0,
+        2, 1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1,
+        2, 2, 1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 0, 0, 0, 0,
       ];
 
       const result = decodeCompleteSequence(corruptedSequence);
@@ -373,9 +369,7 @@ describe("FESK Integration Tests", () => {
     it("should fail when expecting wrong message from fesk1.wav", async () => {
       const { WavReader } = await import("../utils/wavReader");
       const { FeskDecoder } = await import("../feskDecoder");
-      const path = require("path");
 
-      // Read WAV file starting after initial silence
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
@@ -546,7 +540,6 @@ describe("FESK Integration Tests", () => {
         expect(totalToneDetections).toBe(0); // This confirms our finding
       }
     });
-
 
     it("should extract correct tone sequence from fesk1.wav audio", async () => {
       const { WavReader } = await import("../utils/wavReader");
@@ -799,7 +792,6 @@ describe("FESK Integration Tests", () => {
           lastPreambleResult = preambleResult;
           break;
         }
-
       }
 
       expect(lastPreambleResult?.detected).toBe(true);
@@ -810,7 +802,7 @@ describe("FESK Integration Tests", () => {
     const { FeskDecoder } = await import("../feskDecoder");
 
     const decoder = new FeskDecoder();
-    
+
     // Test progress tracking
     const progress = decoder.getProgress();
     expect(progress.phase).toBe("searching");
@@ -822,7 +814,7 @@ describe("FESK Integration Tests", () => {
     // Test direct WAV file processing
     const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
     const frame = await decoder.processWavFile(wavPath, 0.4);
-    
+
     expect(frame).not.toBeNull();
     expect(frame!.isValid).toBe(true);
     const message = new TextDecoder().decode(frame!.payload);
@@ -833,7 +825,7 @@ describe("FESK Integration Tests", () => {
     const { OptimizedFeskDecoder } = await import("../utils/optimizedDecoder");
 
     const decoder = new OptimizedFeskDecoder(0);
-    
+
     // Test progress tracking
     const progress = decoder.getProgress();
     expect(progress.phase).toBe("searching");
@@ -842,7 +834,7 @@ describe("FESK Integration Tests", () => {
     // Test direct WAV file processing with optimization
     const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
     const frame = await decoder.processWavFileOptimized(wavPath, 0.4);
-    
+
     expect(frame).not.toBeNull();
     expect(frame!.isValid).toBe(true);
     const message = new TextDecoder().decode(frame!.payload);
@@ -852,26 +844,31 @@ describe("FESK Integration Tests", () => {
   it("should process complete transmission sequence", async () => {
     const { FeskDecoder } = await import("../feskDecoder");
 
-    const payload = [1,0,1,1,0,0,1,0,1,2,2,1,0,2,0,1,1,0,1,1,1,1,1,2,2,1,0,2,2,1,0,1,0,2,1,2,0,2,2,1,0];
+    const payload = [
+      1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1, 2, 2,
+      1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 2, 2, 1, 0,
+    ];
 
     const decoder = new FeskDecoder();
-    
+
     const frame = decoder.processSymbolSequence(payload);
 
     expect(frame).not.toBeNull();
     expect(frame!.isValid).toBe(true);
     const message = new TextDecoder().decode(frame!.payload);
     expect(message).toBe("test");
-    
   });
 
   it("should process complete transmission with OptimizedFeskDecoder", async () => {
     const { OptimizedFeskDecoder } = await import("../utils/optimizedDecoder");
 
-    const payload = [1,0,1,1,0,0,1,0,1,2,2,1,0,2,0,1,1,0,1,1,1,1,1,2,2,1,0,2,2,1,0,1,0,2,1,2,0,2,2,1,0];
+    const payload = [
+      1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1, 2, 2,
+      1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 2, 2, 1, 0,
+    ];
 
     const decoder = new OptimizedFeskDecoder();
-    
+
     const frame = decoder.baseDecoder.processSymbolSequence(payload);
 
     expect(frame).not.toBeNull();
