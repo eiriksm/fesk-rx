@@ -12,6 +12,7 @@
     "test:verbose": "jest --verbose --no-cache --runInBand --detectOpenHandles --forceExit",
     "test:debug": "NODE_ENV=test DEBUG=* jest --verbose --no-cache --runInBand --detectOpenHandles --forceExit --silent=false --logHeapUsage",
     "test:ci": "jest --verbose --ci --coverage --watchAll=false --runInBand --forceExit",
+    "test:single": "jest --verbose --no-cache --runInBand --testNamePattern",
     "prettier-check": "prettier --check src/*",
     "unit": "npm test",
     "check-exports": "attw --pack .",
