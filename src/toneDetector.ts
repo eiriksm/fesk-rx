@@ -1,4 +1,4 @@
-const { fft } = require("fft-js");
+import { fft } from "fft-js";
 import { ToneDetection, AudioSample } from "./types";
 import { FeskConfig } from "./config";
 

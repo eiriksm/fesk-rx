@@ -1,5 +1,6 @@
 import { AudioSample } from "../types";
 import { FeskConfig } from "../config";
+import * as fs from "fs";
 
 export class SignalGenerator {
   private config: FeskConfig;
@@ -16,7 +17,7 @@ export class SignalGenerator {
       symbolDurationSamples * this.config.preambleBits.length;
     const samples = new Float32Array(totalSamples);
 
-    const [f0, _, f2] = this.config.toneFrequencies; // Preamble uses only f0 and f2
+    const [f0, , f2] = this.config.toneFrequencies; // Preamble uses only f0 and f2
 
     for (let i = 0; i < this.config.preambleBits.length; i++) {
       const bit = this.config.preambleBits[i];
@@ -45,7 +46,7 @@ export class SignalGenerator {
     const totalSamples = symbolDurationSamples * this.config.barker13.length;
     const samples = new Float32Array(totalSamples);
 
-    const [f0, _, f2] = this.config.toneFrequencies; // Sync uses only f0 and f2
+    const [f0, , f2] = this.config.toneFrequencies; // Sync uses only f0 and f2
 
     for (let i = 0; i < this.config.barker13.length; i++) {
       const bit = this.config.barker13[i];
@@ -168,7 +169,6 @@ export class SignalGenerator {
   static saveAsWav(signal: AudioSample, filePath: string): void {
     // Simple WAV file writer for testing
     // This is a basic implementation - for production use a proper library
-    const fs = require("fs");
 
     const sampleRate = signal.sampleRate;
     const numChannels = 1;

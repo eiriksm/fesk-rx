@@ -1,7 +1,7 @@
 import { ToneDetector } from "./toneDetector";
 import { PreambleDetector } from "./preambleDetector";
 import { SyncDetector } from "./syncDetector";
-import { AudioSample, Frame, SymbolDetection } from "./types";
+import { AudioSample, Frame, SymbolDetection, ToneDetection } from "./types";
 import { FeskConfig, DEFAULT_CONFIG } from "./config";
 import { CanonicalTritDecoder } from "./utils/canonicalTritDecoder";
 import { LFSRDescrambler } from "./utils/lfsrDescrambler";
@@ -80,8 +80,125 @@ export class FeskDecoder {
     }
   }
 
+  /**
+   * Process continuous audio data automatically and return when frame is decoded
+   * @param audioData Full audio data to process
+   * @param sampleRate Audio sample rate
+   * @param chunkSizeMs Size of processing chunks in milliseconds (default: 100ms)
+   * @returns Promise that resolves with decoded frame or null if no valid frame found
+   */
+  async processAudioComplete(
+    audioData: Float32Array,
+    sampleRate: number,
+    chunkSizeMs: number = 100
+  ): Promise<Frame | null> {
+    const chunkSize = Math.floor(sampleRate * (chunkSizeMs / 1000));
+    let chunkCount = 0;
+
+    for (let i = 0; i < audioData.length; i += chunkSize) {
+      const chunkEnd = Math.min(i + chunkSize, audioData.length);
+      const chunk = audioData.slice(i, chunkEnd);
+      
+      if (chunk.length < chunkSize) break;
+
+      const timestamp = chunkCount * chunkSizeMs;
+      const audioSample: AudioSample = {
+        data: chunk,
+        timestamp,
+        sampleRate,
+      };
+
+      const frame = this.processAudio(audioSample);
+      
+      if (frame && frame.isValid) {
+        return frame;
+      }
+
+      chunkCount++;
+      // Safety limit - don't process more than 30 seconds of audio
+      if (chunkCount > (30000 / chunkSizeMs)) break;
+      
+      // Yield to event loop every 10 chunks to keep UI responsive
+      if (chunkCount % 10 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Process WAV file directly from file path
+   * @param wavPath Path to WAV file
+   * @param offsetSec Audio offset in seconds (default: 0)
+   * @param chunkSizeMs Processing chunk size in milliseconds (default: 100ms)
+   * @returns Promise that resolves with decoded frame or null
+   */
+  async processWavFile(
+    wavPath: string,
+    offsetSec: number = 0,
+    chunkSizeMs: number = 100
+  ): Promise<Frame | null> {
+    const { WavReader } = await import("./utils/wavReader");
+    const audioData = await WavReader.readWavFileWithOffset(wavPath, offsetSec);
+    return this.processAudioComplete(audioData.data, audioData.sampleRate, chunkSizeMs);
+  }
+
+  /**
+   * Get current decoding progress information
+   * @returns Object with phase, progress percentage, and current trit count
+   */
+  getProgress(): {
+    phase: string;
+    progressPercent: number;
+    tritCount: number;
+    estimatedComplete: boolean;
+  } {
+    const minTritsForDecode = 20;
+    // const maxExpectedTrits = 200; // Reasonable upper bound
+    
+    let progressPercent = 0;
+    let estimatedComplete = false;
+
+    if (this.state.phase === "payload") {
+      progressPercent = Math.min(
+        (this.state.tritCount / minTritsForDecode) * 100,
+        100
+      );
+      estimatedComplete = this.state.tritCount >= minTritsForDecode;
+    } else if (this.state.phase === "sync") {
+      progressPercent = 10; // Made it past preamble
+    }
+
+    return {
+      phase: this.state.phase,
+      progressPercent,
+      tritCount: this.state.tritCount,
+      estimatedComplete,
+    };
+  }
+
+  /**
+   * Check if decoder is ready to attempt frame decode
+   * @returns True if enough data has been collected to attempt decoding
+   */
+  isReadyToDecode(): boolean {
+    return this.state.phase === "payload" && this.state.tritBuffer.length >= 20;
+  }
+
+  /**
+   * Force attempt to decode current buffer (useful for partial frames)
+   * @returns Decoded frame or null if unsuccessful
+   */
+  forceAttemptDecode(): Frame | null {
+    if (this.state.tritBuffer.length === 0) {
+      return null;
+    }
+    return this.attemptDecode();
+  }
+
   private handleSearchingPhase(
-    toneDetections: any[],
+    toneDetections: ToneDetection[],
     timestamp: number,
   ): Frame | null {
     const preambleResult = this.preambleDetector.processToneDetections(
@@ -103,12 +220,12 @@ export class FeskDecoder {
   }
 
   private handleSyncPhase(
-    toneDetections: any[],
+    toneDetections: ToneDetection[],
     timestamp: number,
   ): Frame | null {
     // Use symbol decimation - take the best detection per chunk (same as preamble detector)
     if (toneDetections.length > 0) {
-      const bestDetection = toneDetections.reduce((best: any, current: any) =>
+      const bestDetection = toneDetections.reduce((best: ToneDetection, current: ToneDetection) =>
         current.confidence > best.confidence ? current : best,
       );
 
@@ -137,7 +254,7 @@ export class FeskDecoder {
   }
 
   private handlePayloadPhase(
-    toneDetections: any[],
+    toneDetections: ToneDetection[],
     timestamp: number,
   ): Frame | null {
     // Collect symbol candidates from all detections in this chunk
@@ -194,7 +311,7 @@ export class FeskDecoder {
         // Fall back to simple best detection if majority voting fails
         if (toneDetections.length > 0) {
           const bestDetection = toneDetections.reduce(
-            (best: any, current: any) =>
+            (best: ToneDetection, current: ToneDetection) =>
               current.confidence > best.confidence ? current : best,
           );
 
@@ -317,7 +434,7 @@ export class FeskDecoder {
         crc: receivedCrc,
         isValid: receivedCrc === calculatedCrc,
       };
-    } catch (error) {
+    } catch {
       // Decoding failed, need more data
       return null;
     }
@@ -363,6 +480,58 @@ export class FeskDecoder {
 
   getState(): DecoderState {
     return { ...this.state };
+  }
+
+  /**
+   * Process a complete transmission sequence (preamble + sync + payload)
+   * @param symbols Complete symbol sequence including preamble, sync, and payload
+   * @returns Decoded frame or null if unsuccessful
+   */
+  processCompleteTransmission(symbols: number[]): Frame | null {
+    this.reset();
+    
+    const chunkSizeMs = 100;
+    let currentTime = 0;
+    
+    for (let i = 0; i < symbols.length; i++) {
+      const symbol = symbols[i];
+      const timestamp = currentTime;
+      
+      // Create mock tone detection for this symbol
+      const mockToneDetection = {
+        frequency: this.state.estimatedFrequencies[symbol],
+        magnitude: 1.0,
+        confidence: 1.0,
+      };
+
+      // Process through the phase handlers directly
+      let result: Frame | null = null;
+      
+      switch (this.state.phase) {
+        case "searching":
+          result = this.handleSearchingPhase([mockToneDetection], timestamp);
+          break;
+          
+        case "sync":
+          result = this.handleSyncPhase([mockToneDetection], timestamp);
+          break;
+          
+        case "payload":
+          result = this.handlePayloadPhase([mockToneDetection], timestamp);
+          break;
+      }
+      
+      if (result && result.isValid) {
+        return result;
+      }
+      
+      currentTime += chunkSizeMs;
+      
+      // Safety limit
+      if (i > 1000) break;
+    }
+    
+    return null;
   }
 
   /**
@@ -442,7 +611,7 @@ export class FeskDecoder {
         crc: receivedCrc,
         isValid: receivedCrc === calculatedCrc,
       };
-    } catch (error) {
+    } catch {
       return null;
     }
   }
