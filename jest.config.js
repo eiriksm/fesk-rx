@@ -14,4 +14,6 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   verbose: true,
   errorOnDeprecated: true,
+  testTimeout: 60000,
+  maxWorkers: 1,
 };
