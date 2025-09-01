@@ -274,16 +274,13 @@ describe("FESK Integration Tests", () => {
     it("should decode fesk1.wav to test message", async () => {
       const { WavReader } = await import("../utils/wavReader");
       const { FeskDecoder } = await import("../feskDecoder");
-      const path = require("path");
 
-      // Read WAV file starting after initial silence
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
         0.4,
       ); // Skip 400ms silence
 
-      // Process in 100ms chunks aligned with symbol duration
       const chunkSize = 0.1; // 100ms chunks
       const totalChunks = Math.floor(
         audioWithOffset.data.length / (audioWithOffset.sampleRate * chunkSize),
