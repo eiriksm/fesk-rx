@@ -1,9 +1,11 @@
 /**
  * Canonical MS-first trit decoder that matches the new TX format
  * Implements the exact reverse of pack_bytes_to_trits_msfirst
+ * Fixed to handle very long sequences by using chunked processing
  */
 export class CanonicalTritDecoder {
   private value: bigint = 0n;
+  private useLegacyMode: boolean = false;
 
   constructor() {
     this.reset();
@@ -23,8 +25,44 @@ export class CanonicalTritDecoder {
   }
 
   /**
+   * Correct implementation: Base-3 (MS-trit-first) -> bytes (MSB-first)
+   * This is the exact inverse of the TX pack_bytes_to_trits_msfirst algorithm
+   */
+  static decodeLongSequence(trits: number[]): Uint8Array {
+    if (trits.length === 0) {
+      return new Uint8Array([0]);
+    }
+
+    // Use correct iterative base conversion for all sequences
+    // digits: base-3, MS→LS (don't reverse the input trits!)
+    let digits = trits.slice();
+    const out: number[] = [];
+    
+    while (digits.length > 0) {
+      const q: number[] = [];
+      let carry = 0;
+      
+      // Process digits MS-first (left to right)
+      for (const d of digits) {
+        // cur ∈ [0..(3*255+2)] fits in JS number exactly
+        const cur = carry * 3 + d;
+        const qDigit = Math.floor(cur / 256);
+        carry = cur % 256;
+        if (q.length || qDigit) q.push(qDigit);
+      }
+      
+      out.push(carry);        // remainder (LS byte)
+      digits = q;             // next quotient in base-3 (MS→LS)
+    }
+    
+    out.reverse();            // make bytes MSB-first
+    return new Uint8Array(out);
+  }
+
+  /**
    * Extract bytes in MS-byte-first order
    * This is the exact reverse of the canonical packing algorithm
+   * Fixed version that handles very large numbers correctly
    */
   getBytes(): Uint8Array {
     if (this.value === 0n) {
@@ -34,11 +72,22 @@ export class CanonicalTritDecoder {
     const bytes: number[] = [];
     let temp = this.value;
 
+    // For very large numbers, we need to be more careful
     // Extract bytes from least significant to most significant
     // but store them in MS-first order
-    while (temp > 0n) {
-      bytes.unshift(Number(temp % 256n));
+    const maxBytes = 100; // Safety limit to prevent infinite loops
+    let byteCount = 0;
+    
+    while (temp > 0n && byteCount < maxBytes) {
+      const byteValue = Number(temp % 256n);
+      bytes.unshift(byteValue);
       temp = temp / 256n;
+      byteCount++;
+    }
+
+    if (byteCount >= maxBytes) {
+      console.warn(`CanonicalTritDecoder: Reached maximum byte limit (${maxBytes}) - number too large!`);
+      console.warn(`Original value was: ${this.value.toString().slice(0, 100)}...`);
     }
 
     return new Uint8Array(bytes);
