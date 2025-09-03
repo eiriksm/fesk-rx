@@ -448,18 +448,19 @@ export class FeskDecoder {
   private removePilots(trits: number[]): number[] {
     const interval = 64; // FESK_PILOT_INTERVAL
     if (interval <= 0) return trits.slice();
-    
+
     const out: number[] = [];
     let dataCount = 0;
     let i = 0;
-    
+
     while (i < trits.length) {
-      if (dataCount > 0 && (dataCount % interval) === 0) {
-        const p0 = trits[i], p1 = trits[i + 1];
+      if (dataCount > 0 && dataCount % interval === 0) {
+        const p0 = trits[i],
+          p1 = trits[i + 1];
         if (p0 === 0 && p1 === 2) i += 2; // drop [0,2]
       }
       if (i >= trits.length) break;
-      out.push(trits[i++]);   // count only data trits
+      out.push(trits[i++]); // count only data trits
       dataCount++;
     }
     return out;
@@ -567,15 +568,16 @@ export class FeskDecoder {
     try {
       // Convert trits to bytes using canonical MS-first algorithm
       // Use chunked approach for long sequences to avoid mathematical precision issues
-      const allBytes = trits.length > 50 
-        ? CanonicalTritDecoder.decodeLongSequence(trits)
-        : (() => {
-            const decoder = new CanonicalTritDecoder();
-            for (const trit of trits) {
-              decoder.addTrit(trit);
-            }
-            return decoder.getBytes();
-          })();
+      const allBytes =
+        trits.length > 50
+          ? CanonicalTritDecoder.decodeLongSequence(trits)
+          : (() => {
+              const decoder = new CanonicalTritDecoder();
+              for (const trit of trits) {
+                decoder.addTrit(trit);
+              }
+              return decoder.getBytes();
+            })();
       if (allBytes.length < 4) {
         console.log(`DEBUG: Not enough bytes: ${allBytes.length} < 4`);
         return null;
@@ -584,7 +586,7 @@ export class FeskDecoder {
       // Descramble header+payload continuously (as per TX algorithm)
       // The TX scrambler is continuous, so RX must descramble in one pass
       const descrambler = new LFSRDescrambler();
-      
+
       // Get payload length first to know how much to descramble
       const tempDescrambler = new LFSRDescrambler();
       const headerHi = tempDescrambler.descrambleByte(allBytes[0]);
@@ -604,9 +606,11 @@ export class FeskDecoder {
       const headerAndPayloadScrambled = allBytes.slice(0, 2 + payloadLength);
       const headerAndPayload = new Uint8Array(2 + payloadLength);
       for (let i = 0; i < headerAndPayload.length; i++) {
-        headerAndPayload[i] = descrambler.descrambleByte(headerAndPayloadScrambled[i]);
+        headerAndPayload[i] = descrambler.descrambleByte(
+          headerAndPayloadScrambled[i],
+        );
       }
-      
+
       // Extract payload (skip header)
       const payload = headerAndPayload.slice(2);
 

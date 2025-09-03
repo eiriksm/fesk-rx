@@ -153,24 +153,31 @@ describe("FESK Integration Tests", () => {
     it('should debug and fix "the truth is out there" sequence decoding', async () => {
       const truthSequence = [
         // Preamble + Sync
-        2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0, 2,
+        2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
+        2,
         // Payload (with pilots) - from C library
-        2,2,2,1,0,2,1,2,2,1,1,0,1,0,0,0,2,1,2,1,2,1,0,2,0,1,1,0,2,0,1,1,2,2,1,0,2,2,0,1,
-        2,1,0,2,0,1,2,0,0,2,0,0,0,2,0,1,2,1,0,0,0,1,1,1,0,2,1,2,1,2,1,0,2,0,0,1,1,1,1,1,
-        1,2,0,2,2,0,1,1,2,2,0,2,1,1,2,2,2,1,0,0,0,0,2,0,0,1,2,2,0,2,1,2,1,1,2,1,0,1,0,0,
-        2,2,0,0,1,0,0,0,0,0,2,2,0,2,2
+        2, 2, 2, 1, 0, 2, 1, 2, 2, 1, 1, 0, 1, 0, 0, 0, 2, 1, 2, 1, 2, 1, 0, 2,
+        0, 1, 1, 0, 2, 0, 1, 1, 2, 2, 1, 0, 2, 2, 0, 1, 2, 1, 0, 2, 0, 1, 2, 0,
+        0, 2, 0, 0, 0, 2, 0, 1, 2, 1, 0, 0, 0, 1, 1, 1, 0, 2, 1, 2, 1, 2, 1, 0,
+        2, 0, 0, 1, 1, 1, 1, 1, 1, 2, 0, 2, 2, 0, 1, 1, 2, 2, 0, 2, 1, 1, 2, 2,
+        2, 1, 0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 0, 2, 1, 2, 1, 1, 2, 1, 0, 1, 0, 0,
+        2, 2, 0, 0, 1, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2,
       ];
 
       // Validate overall structure
       expect(truthSequence.length).toBe(160); // Total sequence length from C library
-      
+
       // Validate preamble structure
-      const preambleBits = truthSequence.slice(0, 12).map((s) => (s === 2 ? 1 : 0));
+      const preambleBits = truthSequence
+        .slice(0, 12)
+        .map((s) => (s === 2 ? 1 : 0));
       const expectedPreamble = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
       expect(preambleBits).toEqual(expectedPreamble);
 
-      // Validate sync structure  
-      const syncBits = truthSequence.slice(12, 25).map((s) => (s === 2 ? 1 : 0));
+      // Validate sync structure
+      const syncBits = truthSequence
+        .slice(12, 25)
+        .map((s) => (s === 2 ? 1 : 0));
       const expectedSync = [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1];
       expect(syncBits).toEqual(expectedSync);
 
@@ -179,37 +186,45 @@ describe("FESK Integration Tests", () => {
       expect(payloadTrits.length).toBe(135); // 133 data trits + 2 pilots
 
       // Validate pilot positions (from C library analysis)
-      expect(payloadTrits[64]).toBe(0);  // First pilot trit  
-      expect(payloadTrits[65]).toBe(2);  // Second pilot trit
-      
+      expect(payloadTrits[64]).toBe(0); // First pilot trit
+      expect(payloadTrits[65]).toBe(2); // Second pilot trit
+
       // Validate that pilot removal works correctly
       const { FeskDecoder } = await import("../feskDecoder");
       const decoder = new FeskDecoder();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cleanedTrits = (decoder as any).removePilots(payloadTrits);
-      
+
       expect(cleanedTrits.length).toBe(133); // Should remove exactly 2 pilots
       expect(payloadTrits.length - cleanedTrits.length).toBe(2);
-      
+
       // Validate that all trits are valid symbols (0, 1, 2)
       for (const trit of cleanedTrits) {
         expect([0, 1, 2]).toContain(trit);
       }
-      
+
       // Let's test with the correct expected sequence
       console.log("=== DEBUGGING LONG SEQUENCE ISSUE ===");
-      
+
       // Test with the correct expected trit sequence (131 trits)
-      const correctTrits = [2,2,2,1,0,2,1,2,2,1,1,0,1,0,0,0,2,1,2,1,2,1,0,2,0,1,1,0,2,0,1,1,2,2,1,0,2,2,0,1,2,1,0,2,0,1,2,0,0,2,0,0,0,2,0,1,2,1,0,0,0,1,1,1,1,2,1,2,1,0,2,0,0,1,1,1,1,1,1,2,0,2,2,0,1,1,2,2,0,2,1,1,2,2,2,1,0,0,0,0,2,0,0,1,2,2,0,2,1,2,1,1,2,1,0,1,0,0,2,2,0,0,1,0,0,0,0,2,0,2,2];
+      const correctTrits = [
+        2, 2, 2, 1, 0, 2, 1, 2, 2, 1, 1, 0, 1, 0, 0, 0, 2, 1, 2, 1, 2, 1, 0, 2,
+        0, 1, 1, 0, 2, 0, 1, 1, 2, 2, 1, 0, 2, 2, 0, 1, 2, 1, 0, 2, 0, 1, 2, 0,
+        0, 2, 0, 0, 0, 2, 0, 1, 2, 1, 0, 0, 0, 1, 1, 1, 1, 2, 1, 2, 1, 0, 2, 0,
+        0, 1, 1, 1, 1, 1, 1, 2, 0, 2, 2, 0, 1, 1, 2, 2, 0, 2, 1, 1, 2, 2, 2, 1,
+        0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 0, 2, 1, 2, 1, 1, 2, 1, 0, 1, 0, 0, 2, 2,
+        0, 0, 1, 0, 0, 0, 0, 2, 0, 2, 2,
+      ];
       console.log(`Correct "truth" payload: ${correctTrits.length} trits`);
       const correctResult = (decoder as any).decodeTritsInternal(correctTrits);
-      console.log(`Correct result: ${correctResult ? 'SUCCESS' : 'NULL'}`);
+      console.log(`Correct result: ${correctResult ? "SUCCESS" : "NULL"}`);
       if (correctResult) {
-        console.log(`  Message: "${new TextDecoder().decode(correctResult.payload)}"`);
+        console.log(
+          `  Message: "${new TextDecoder().decode(correctResult.payload)}"`,
+        );
         console.log(`  Payload length: ${correctResult.header.payloadLength}`);
         console.log(`  CRC valid: ${correctResult.isValid}`);
       }
-      
+
       // First, test a working short sequence for comparison
       const workingSequence = [
         1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1, 2,
@@ -217,91 +232,147 @@ describe("FESK Integration Tests", () => {
       ];
       console.log(`Working "test" payload: ${workingSequence.length} trits`);
       const workingResult = (decoder as any).decodeTritsInternal(workingSequence);
-      console.log(`Working result: ${workingResult ? 'SUCCESS' : 'NULL'}`);
+      console.log(`Working result: ${workingResult ? "SUCCESS" : "NULL"}`);
       if (workingResult) {
-        console.log(`  Message: "${new TextDecoder().decode(workingResult.payload)}"`);
+        console.log(
+          `  Message: "${new TextDecoder().decode(workingResult.payload)}"`,
+        );
         console.log(`  Payload length: ${workingResult.header.payloadLength}`);
       }
-      
+
       console.log(`\nBroken "truth" payload: ${cleanedTrits.length} trits`);
       const brokenResult = (decoder as any).decodeTritsInternal(cleanedTrits);
-      console.log(`Broken result: ${brokenResult ? 'SUCCESS' : 'NULL'}`);
-      
+      console.log(`Broken result: ${brokenResult ? "SUCCESS" : "NULL"}`);
+
       // Let's examine the trit-to-byte conversion step by step
-      const { CanonicalTritDecoder } = await import("../utils/canonicalTritDecoder");
-      
+      const { CanonicalTritDecoder } = await import(
+        "../utils/canonicalTritDecoder"
+      );
+
       console.log("\n=== TRIT-TO-BYTE CONVERSION COMPARISON ===");
-      
+
       // Working sequence
       const workingTritDecoder = new CanonicalTritDecoder();
       for (const trit of workingSequence) {
         workingTritDecoder.addTrit(trit);
       }
       const workingBytes = workingTritDecoder.getBytes();
-      console.log(`Working sequence: ${workingSequence.length} trits → ${workingBytes.length} bytes`);
-      console.log(`  Bytes: [${Array.from(workingBytes.slice(0, 8)).map(b => '0x' + b.toString(16)).join(', ')}]`);
-      
+      console.log(
+        `Working sequence: ${workingSequence.length} trits → ${workingBytes.length} bytes`,
+      );
+      console.log(
+        `  Bytes: [${Array.from(workingBytes.slice(0, 8))
+          .map((b) => "0x" + b.toString(16))
+          .join(", ")}]`,
+      );
+
       // Broken sequence
       const brokenTritDecoder = new CanonicalTritDecoder();
       for (const trit of cleanedTrits) {
         brokenTritDecoder.addTrit(trit);
       }
       const brokenBytes = brokenTritDecoder.getBytes();
-      console.log(`Broken sequence: ${cleanedTrits.length} trits → ${brokenBytes.length} bytes`);
-      console.log(`  First 8 bytes: [${Array.from(brokenBytes.slice(0, 8)).map(b => '0x' + b.toString(16)).join(', ')}]`);
-      
+      console.log(
+        `Broken sequence: ${cleanedTrits.length} trits → ${brokenBytes.length} bytes`,
+      );
+      console.log(
+        `  First 8 bytes: [${Array.from(brokenBytes.slice(0, 8))
+          .map((b) => "0x" + b.toString(16))
+          .join(", ")}]`,
+      );
+
       // CRUCIAL DEBUG: Log packed bytes to compare with expected
-      console.log("RX PACKED BYTES:", [...brokenBytes].map(b=>b.toString(16).padStart(2,"0")).join(""));
-      console.log("EXPECTED BYTES: c1ed9c24f552ff95c625e143c250036df16c52de094a49347cba");
-      
+      console.log(
+        "RX PACKED BYTES:",
+        [...brokenBytes].map((b) => b.toString(16).padStart(2, "0")).join(""),
+      );
+      console.log(
+        "EXPECTED BYTES: c1ed9c24f552ff95c625e143c250036df16c52de094a49347cba",
+      );
+
       // Test the expected sequence directly
       console.log("\n=== TESTING EXPECTED SEQUENCE ===");
-      const expectedTrits = [2,2,2,1,0,2,1,2,2,1,1,0,1,0,0,0,2,1,2,1,2,1,0,2,0,1,1,0,2,0,1,1,2,2,1,0,2,2,0,1,2,1,0,2,0,1,2,0,0,2,0,0,0,2,0,1,2,1,0,0,0,1,1,1,1,2,1,2,1,0,2,0,0,1,1,1,1,1,1,2,0,2,2,0,1,1,2,2,0,2,1,1,2,2,2,1,0,0,0,0,2,0,0,1,2,2,0,2,1,2,1,1,2,1,0,1,0,0,2,2,0,0,1,0,0,0,0,2,0,2,2];
-      const expectedBytes = CanonicalTritDecoder.decodeLongSequence(expectedTrits);
-      console.log("Expected trits (" + expectedTrits.length + ") → bytes:", [...expectedBytes].map(b=>b.toString(16).padStart(2,"0")).join(""));
-      console.log("Should match expected: c1ed9c24f552ff95c625e143c250036df16c52de094a49347cba");
-      
+      const expectedTrits = [
+        2, 2, 2, 1, 0, 2, 1, 2, 2, 1, 1, 0, 1, 0, 0, 0, 2, 1, 2, 1, 2, 1, 0, 2,
+        0, 1, 1, 0, 2, 0, 1, 1, 2, 2, 1, 0, 2, 2, 0, 1, 2, 1, 0, 2, 0, 1, 2, 0,
+        0, 2, 0, 0, 0, 2, 0, 1, 2, 1, 0, 0, 0, 1, 1, 1, 1, 2, 1, 2, 1, 0, 2, 0,
+        0, 1, 1, 1, 1, 1, 1, 2, 0, 2, 2, 0, 1, 1, 2, 2, 0, 2, 1, 1, 2, 2, 2, 1,
+        0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 0, 2, 1, 2, 1, 1, 2, 1, 0, 1, 0, 0, 2, 2,
+        0, 0, 1, 0, 0, 0, 0, 2, 0, 2, 2,
+      ];
+      const expectedBytes =
+        CanonicalTritDecoder.decodeLongSequence(expectedTrits);
+      console.log(
+        "Expected trits (" + expectedTrits.length + ") → bytes:",
+        [...expectedBytes].map((b) => b.toString(16).padStart(2, "0")).join(""),
+      );
+      console.log(
+        "Should match expected: c1ed9c24f552ff95c625e143c250036df16c52de094a49347cba",
+      );
+
       // Let's also check if the issue is just too many trits
       console.log(`\n=== LENGTH ANALYSIS ===`);
-      console.log(`Working: 41 trits = ${Math.ceil(41 * Math.log(3) / Math.log(256))} theoretical bytes`);
-      console.log(`Broken: ${cleanedTrits.length} trits = ${Math.ceil(cleanedTrits.length * Math.log(3) / Math.log(256))} theoretical bytes`);
-      
+      console.log(
+        `Working: 41 trits = ${Math.ceil((41 * Math.log(3)) / Math.log(256))} theoretical bytes`,
+      );
+      console.log(
+        `Broken: ${cleanedTrits.length} trits = ${Math.ceil((cleanedTrits.length * Math.log(3)) / Math.log(256))} theoretical bytes`,
+      );
+
       // Let's debug the header parsing issue
       console.log(`\n=== HEADER PARSING DEBUG ===`);
-      
+
       const { LFSRDescrambler } = await import("../utils/lfsrDescrambler");
-      
+
       // Working sequence header
       const workingDescrambler = new LFSRDescrambler();
-      const workingHeaderHi = workingDescrambler.descrambleByte(workingBytes[0]);
-      const workingHeaderLo = workingDescrambler.descrambleByte(workingBytes[1]);
+      const workingHeaderHi = workingDescrambler.descrambleByte(
+        workingBytes[0],
+      );
+      const workingHeaderLo = workingDescrambler.descrambleByte(
+        workingBytes[1],
+      );
       const workingPayloadLength = (workingHeaderHi << 8) | workingHeaderLo;
-      console.log(`Working header: 0x${workingBytes[0].toString(16)},0x${workingBytes[1].toString(16)} → 0x${workingHeaderHi.toString(16)},0x${workingHeaderLo.toString(16)} → length=${workingPayloadLength}`);
-      
-      // Broken sequence header  
+      console.log(
+        `Working header: 0x${workingBytes[0].toString(16)},0x${workingBytes[1].toString(16)} → 0x${workingHeaderHi.toString(16)},0x${workingHeaderLo.toString(16)} → length=${workingPayloadLength}`,
+      );
+
+      // Broken sequence header
       const brokenDescrambler = new LFSRDescrambler();
       const brokenHeaderHi = brokenDescrambler.descrambleByte(brokenBytes[0]);
       const brokenHeaderLo = brokenDescrambler.descrambleByte(brokenBytes[1]);
       const brokenPayloadLength = (brokenHeaderHi << 8) | brokenHeaderLo;
-      console.log(`Broken header: 0x${brokenBytes[0].toString(16)},0x${brokenBytes[1].toString(16)} → 0x${brokenHeaderHi.toString(16)},0x${brokenHeaderLo.toString(16)} → length=${brokenPayloadLength}`);
-      
+      console.log(
+        `Broken header: 0x${brokenBytes[0].toString(16)},0x${brokenBytes[1].toString(16)} → 0x${brokenHeaderHi.toString(16)},0x${brokenHeaderLo.toString(16)} → length=${brokenPayloadLength}`,
+      );
+
       // The issue is clear: the header is wrong. Let's see if this is a pilot removal issue
       console.log(`\n=== CHECKING IF PILOT REMOVAL IS COMPLETE ===`);
       console.log(`Original payload trits length: ${payloadTrits.length}`);
       console.log(`After pilot removal: ${cleanedTrits.length}`);
-      console.log(`Pilots removed: ${payloadTrits.length - cleanedTrits.length}`);
-      
+      console.log(
+        `Pilots removed: ${payloadTrits.length - cleanedTrits.length}`,
+      );
+
       // Let's look at the first few trits before and after pilot removal
-      console.log(`First 10 original trits: [${payloadTrits.slice(0, 10).join(', ')}]`);
-      console.log(`First 10 cleaned trits:  [${cleanedTrits.slice(0, 10).join(', ')}]`);
-      
+      console.log(
+        `First 10 original trits: [${payloadTrits.slice(0, 10).join(", ")}]`,
+      );
+      console.log(
+        `First 10 cleaned trits:  [${cleanedTrits.slice(0, 10).join(", ")}]`,
+      );
+
       // And around the pilot position
-      console.log(`Around pilot (pos 60-70):`)
-      console.log(`  Original: [${payloadTrits.slice(60, 70).join(', ')}]`);
-      
+      console.log(`Around pilot (pos 60-70):`);
+      console.log(`  Original: [${payloadTrits.slice(60, 70).join(", ")}]`);
+
       const cleanedPilotArea = [];
       let cleanedIndex = 0;
-      for (let i = 0; i < payloadTrits.length && cleanedIndex < cleanedTrits.length; i++) {
+      for (
+        let i = 0;
+        i < payloadTrits.length && cleanedIndex < cleanedTrits.length;
+        i++
+      ) {
         if (i === 64 || i === 65) {
           // Skip pilots
           continue;
@@ -311,23 +382,31 @@ describe("FESK Integration Tests", () => {
         }
         cleanedIndex++;
       }
-      console.log(`  Cleaned:  [${cleanedPilotArea.join(', ')}]`);
-      
+      console.log(`  Cleaned:  [${cleanedPilotArea.join(", ")}]`);
+
       // Let's check the exact pilot positions
-      console.log(`\n=== EXACT PILOT POSITIONS ===`);  
+      console.log(`\n=== EXACT PILOT POSITIONS ===`);
       console.log(`Position 64: ${payloadTrits[64]} (should be 0 for pilot)`);
       console.log(`Position 65: ${payloadTrits[65]} (should be 2 for pilot)`);
-      
-      // Let's manually trace what removePilots should do  
+
+      // Let's manually trace what removePilots should do
       console.log(`\n=== MANUAL PILOT REMOVAL TRACE ===`);
-      let manualCleaned = [];
+      const manualCleaned = [];
       let dataCount = 0;
       for (let i = 0; i < payloadTrits.length; i++) {
         if (dataCount > 0 && dataCount % 64 === 0) {
           // Should be a pilot position
-          console.log(`  Position ${i}: dataCount=${dataCount}, expecting pilot [0,2] at positions ${i},${i+1}`);
-          console.log(`  Actual trits: [${payloadTrits[i]},${payloadTrits[i+1]}]`);
-          if (i < payloadTrits.length - 1 && payloadTrits[i] === 0 && payloadTrits[i + 1] === 2) {
+          console.log(
+            `  Position ${i}: dataCount=${dataCount}, expecting pilot [0,2] at positions ${i},${i + 1}`,
+          );
+          console.log(
+            `  Actual trits: [${payloadTrits[i]},${payloadTrits[i + 1]}]`,
+          );
+          if (
+            i < payloadTrits.length - 1 &&
+            payloadTrits[i] === 0 &&
+            payloadTrits[i + 1] === 2
+          ) {
             console.log(`  ✅ Found pilot [0,2], skipping both`);
             i++; // Skip next trit too
             continue;
@@ -338,16 +417,20 @@ describe("FESK Integration Tests", () => {
         manualCleaned.push(payloadTrits[i]);
         dataCount++;
       }
-      console.log(`Manual cleaned length: ${manualCleaned.length} (vs automatic: ${cleanedTrits.length})`);
-      console.log(`First 10 manual: [${manualCleaned.slice(0, 10).join(', ')}]`);
-      console.log(`First 10 auto:   [${cleanedTrits.slice(0, 10).join(', ')}]`);
-      
+      console.log(
+        `Manual cleaned length: ${manualCleaned.length} (vs automatic: ${cleanedTrits.length})`,
+      );
+      console.log(
+        `First 10 manual: [${manualCleaned.slice(0, 10).join(", ")}]`,
+      );
+      console.log(`First 10 auto:   [${cleanedTrits.slice(0, 10).join(", ")}]`);
+
       if (JSON.stringify(manualCleaned) === JSON.stringify(cleanedTrits)) {
         console.log(`✅ Manual and automatic pilot removal match`);
       } else {
         console.log(`❌ Manual and automatic pilot removal differ!`);
       }
-      
+
       // Let's test the EXACT sequence from main branch to see if it works
       console.log(`\n=== TESTING EXACT MAIN BRANCH SEQUENCE ===`);
       const mainBranchPayload = [
@@ -358,151 +441,193 @@ describe("FESK Integration Tests", () => {
         2, 1, 0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 0, 2, 1, 2, 1, 1, 2, 1, 0, 1, 0, 0,
         2, 2, 0, 0, 1, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2,
       ];
-      
+
       console.log(`Main branch payload length: ${mainBranchPayload.length}`);
-      
+
       // Test with pilot removal
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any  
       const mainCleaned = (decoder as any).removePilots(mainBranchPayload);
       console.log(`Main branch after pilot removal: ${mainCleaned.length}`);
-      
+
       // Try to decode it
       const mainResult = (decoder as any).decodeTritsInternal(mainCleaned);
-      console.log(`Main branch result: ${mainResult ? 'SUCCESS' : 'NULL'}`);
+      console.log(`Main branch result: ${mainResult ? "SUCCESS" : "NULL"}`);
       if (mainResult) {
-        console.log(`  Message: "${new TextDecoder().decode(mainResult.payload)}"`);
+        console.log(
+          `  Message: "${new TextDecoder().decode(mainResult.payload)}"`,
+        );
         console.log(`  Payload length: ${mainResult.header.payloadLength}`);
         console.log(`  CRC: 0x${mainResult.crc.toString(16)}`);
       }
-      
+
       // Check if sequences are identical
       const currentPayloadSlice = payloadTrits;
-      if (JSON.stringify(mainBranchPayload) === JSON.stringify(currentPayloadSlice)) {
+      if (
+        JSON.stringify(mainBranchPayload) ===
+        JSON.stringify(currentPayloadSlice)
+      ) {
         console.log(`✅ Current and main branch payloads are identical`);
       } else {
         console.log(`❌ Current and main branch payloads differ!`);
         console.log(`  Current length: ${currentPayloadSlice.length}`);
         console.log(`  Main length: ${mainBranchPayload.length}`);
       }
-      
+
       // Test your theory - maybe the header is offset in the byte stream
       console.log(`\n=== TESTING BYTE OFFSET THEORY ===`);
-      console.log(`All 27 bytes: [${Array.from(brokenBytes).map(b => '0x' + b.toString(16)).join(', ')}]`);
-      
-      const { LFSRDescrambler: LFSRDescrambler2 } = await import("../utils/lfsrDescrambler");
-      
+      console.log(
+        `All 27 bytes: [${Array.from(brokenBytes)
+          .map((b) => "0x" + b.toString(16))
+          .join(", ")}]`,
+      );
+
+      const { LFSRDescrambler: LFSRDescrambler2 } = await import(
+        "../utils/lfsrDescrambler"
+      );
+
       // Try each possible offset position as the header
-      for (let offset = 0; offset < Math.min(brokenBytes.length - 2, 10); offset++) {
+      for (
+        let offset = 0;
+        offset < Math.min(brokenBytes.length - 2, 10);
+        offset++
+      ) {
         const descrambler = new LFSRDescrambler2();
         const headerHi = descrambler.descrambleByte(brokenBytes[offset]);
         const headerLo = descrambler.descrambleByte(brokenBytes[offset + 1]);
         const payloadLength = (headerHi << 8) | headerLo;
-        
-        console.log(`  Offset ${offset}: bytes[${brokenBytes[offset].toString(16)},${brokenBytes[offset+1].toString(16)}] → length=${payloadLength}`);
-        
+
+        console.log(
+          `  Offset ${offset}: bytes[${brokenBytes[offset].toString(16)},${brokenBytes[offset + 1].toString(16)}] → length=${payloadLength}`,
+        );
+
         // Check if this looks reasonable (should be around 22 for "the truth is out there")
         if (payloadLength === 22) {
-          console.log(`    🎯 FOUND LIKELY HEADER! Offset ${offset}, payload length 22`);
-          
+          console.log(
+            `    🎯 FOUND LIKELY HEADER! Offset ${offset}, payload length 22`,
+          );
+
           // Verify we have enough bytes for this interpretation
           const totalNeeded = offset + 2 + payloadLength + 2;
-          console.log(`    Need ${totalNeeded} bytes total, have ${brokenBytes.length}`);
+          console.log(
+            `    Need ${totalNeeded} bytes total, have ${brokenBytes.length}`,
+          );
           if (totalNeeded <= brokenBytes.length) {
             console.log(`    ✅ Enough bytes available!`);
-            
+
             // Try to extract the payload and CRC
             const payload = new Uint8Array(payloadLength);
             const descrambler2 = new LFSRDescrambler2();
-            // Skip the offset + header bytes 
+            // Skip the offset + header bytes
             for (let i = 0; i < offset + 2; i++) {
               descrambler2.descrambleByte(brokenBytes[i]);
             }
-            
+
             for (let i = 0; i < payloadLength; i++) {
-              payload[i] = descrambler2.descrambleByte(brokenBytes[offset + 2 + i]);
+              payload[i] = descrambler2.descrambleByte(
+                brokenBytes[offset + 2 + i],
+              );
             }
-            
-            const receivedCrc = (brokenBytes[offset + 2 + payloadLength] << 8) | brokenBytes[offset + 2 + payloadLength + 1];
-            
-            console.log(`    Decoded message: "${new TextDecoder().decode(payload)}"`);
+
+            const receivedCrc =
+              (brokenBytes[offset + 2 + payloadLength] << 8) |
+              brokenBytes[offset + 2 + payloadLength + 1];
+
+            console.log(
+              `    Decoded message: "${new TextDecoder().decode(payload)}"`,
+            );
             console.log(`    CRC: 0x${receivedCrc.toString(16)}`);
           }
         } else if (payloadLength > 0 && payloadLength <= 64) {
           console.log(`    Could be valid (length ${payloadLength})`);
         }
       }
-      
+
       // Test if the issue is with the CanonicalTritDecoder handling very long sequences
       console.log(`\n=== TESTING CANONICAL TRIT DECODER LIMITS ===`);
-      
+
       // Test progressively longer sequences to find the breaking point
       const testLengths = [10, 20, 30, 40, 50, 70, 90, 133];
-      
+
       for (const len of testLengths) {
         if (len > cleanedTrits.length) continue;
-        
+
         const testTrits = cleanedTrits.slice(0, len);
         const testDecoder = new CanonicalTritDecoder();
-        
+
         for (const trit of testTrits) {
           testDecoder.addTrit(trit);
         }
-        
+
         const testBytes = testDecoder.getBytes();
-        console.log(`  ${len} trits → ${testBytes.length} bytes, first byte: 0x${testBytes[0].toString(16)}`);
-        
+        console.log(
+          `  ${len} trits → ${testBytes.length} bytes, first byte: 0x${testBytes[0].toString(16)}`,
+        );
+
         // Test if this looks like it could be valid data
-        if (len >= 40) { // Minimum for a reasonable frame
+        if (len >= 40) {
+          // Minimum for a reasonable frame
           const testDescrambler = new LFSRDescrambler2();
           const testHeaderHi = testDescrambler.descrambleByte(testBytes[0]);
           const testHeaderLo = testDescrambler.descrambleByte(testBytes[1]);
           const testPayloadLength = (testHeaderHi << 8) | testHeaderLo;
-          
-          console.log(`    Header bytes: [0x${testBytes[0].toString(16)}, 0x${testBytes[1].toString(16)}] → payload length: ${testPayloadLength}`);
-          
+
+          console.log(
+            `    Header bytes: [0x${testBytes[0].toString(16)}, 0x${testBytes[1].toString(16)}] → payload length: ${testPayloadLength}`,
+          );
+
           if (testPayloadLength > 0 && testPayloadLength <= 64) {
-            console.log(`    🎯 Length ${len}: REASONABLE payload length ${testPayloadLength}!`);
+            console.log(
+              `    🎯 Length ${len}: REASONABLE payload length ${testPayloadLength}!`,
+            );
           }
         }
       }
-      
+
       // Test what the theoretical maximum should be
       console.log(`\n=== THEORETICAL ANALYSIS ===`);
-      console.log(`3^133 = ${3n**133n} (this is HUGE!)`);
-      console.log(`Expected bytes for "the truth is out there" (22 chars + header + CRC): ~26 bytes`);
+      console.log(`3^133 = ${3n ** 133n} (this is HUGE!)`);
+      console.log(
+        `Expected bytes for "the truth is out there" (22 chars + header + CRC): ~26 bytes`,
+      );
       console.log(`Our decoder produces: ${brokenBytes.length} bytes`);
-      
+
       // Test with a known working sequence: "hello" from C library
       console.log(`\n=== TESTING C LIBRARY "HELLO" SEQUENCE ===`);
       const helloSequence = [
         // Preamble + Sync (positions 0-24)
-        2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0, 2,
-        // Payload from C library (positions 25-70) 
-        1, 0, 1, 2, 2, 0, 1, 0, 0, 1, 0, 0, 0, 2, 0, 1, 1, 1, 1, 1, 2, 0, 0, 0, 1,
-        2, 1, 2, 2, 0, 1, 1, 0, 2, 1, 1, 0, 0, 1, 0, 1, 1, 2, 1, 1, 0
+        2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
+        2,
+        // Payload from C library (positions 25-70)
+        1, 0, 1, 2, 2, 0, 1, 0, 0, 1, 0, 0, 0, 2, 0, 1, 1, 1, 1, 1, 2, 0, 0, 0,
+        1, 2, 1, 2, 2, 0, 1, 1, 0, 2, 1, 1, 0, 0, 1, 0, 1, 1, 2, 1, 1, 0,
       ];
-      
+
       console.log(`Hello sequence length: ${helloSequence.length}`);
       const helloPayload = helloSequence.slice(25);
       console.log(`Hello payload length: ${helloPayload.length}`);
-      
-      // Test if "hello" decodes correctly  
+
+      // Test if "hello" decodes correctly
       const helloResult = (decoder as any).decodeTritsInternal(helloPayload);
-      console.log(`Hello result: ${helloResult ? 'SUCCESS' : 'NULL'}`);
+      console.log(`Hello result: ${helloResult ? "SUCCESS" : "NULL"}`);
       if (helloResult) {
-        console.log(`  Message: "${new TextDecoder().decode(helloResult.payload)}"`);
+        console.log(
+          `  Message: "${new TextDecoder().decode(helloResult.payload)}"`,
+        );
         console.log(`  Payload length: ${helloResult.header.payloadLength}`);
         console.log(`  CRC: 0x${helloResult.crc.toString(16)}`);
       }
-      
+
       // Compare hello vs broken sequence
       if (helloResult && !brokenResult) {
-        console.log(`🎯 INSIGHT: "hello" works but "truth is out there" doesn't!`);
+        console.log(
+          `🎯 INSIGHT: "hello" works but "truth is out there" doesn't!`,
+        );
         console.log(`  Hello payload: ${helloPayload.length} trits`);
         console.log(`  Truth payload: ${cleanedTrits.length} trits`);
-        console.log(`  The issue might be with very long sequences (133 trits is too much)`);
+        console.log(
+          `  The issue might be with very long sequences (133 trits is too much)`,
+        );
       }
-      
+
       // For now, just validate the structure since we're debugging
       expect(cleanedTrits.length).toBe(133);
     });

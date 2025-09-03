@@ -37,11 +37,11 @@ export class CanonicalTritDecoder {
     // digits: base-3, MS→LS (don't reverse the input trits!)
     let digits = trits.slice();
     const out: number[] = [];
-    
+
     while (digits.length > 0) {
       const q: number[] = [];
       let carry = 0;
-      
+
       // Process digits MS-first (left to right)
       for (const d of digits) {
         // cur ∈ [0..(3*255+2)] fits in JS number exactly
@@ -50,12 +50,12 @@ export class CanonicalTritDecoder {
         carry = cur % 256;
         if (q.length || qDigit) q.push(qDigit);
       }
-      
-      out.push(carry);        // remainder (LS byte)
-      digits = q;             // next quotient in base-3 (MS→LS)
+
+      out.push(carry); // remainder (LS byte)
+      digits = q; // next quotient in base-3 (MS→LS)
     }
-    
-    out.reverse();            // make bytes MSB-first
+
+    out.reverse(); // make bytes MSB-first
     return new Uint8Array(out);
   }
 
@@ -77,7 +77,7 @@ export class CanonicalTritDecoder {
     // but store them in MS-first order
     const maxBytes = 100; // Safety limit to prevent infinite loops
     let byteCount = 0;
-    
+
     while (temp > 0n && byteCount < maxBytes) {
       const byteValue = Number(temp % 256n);
       bytes.unshift(byteValue);
@@ -86,8 +86,12 @@ export class CanonicalTritDecoder {
     }
 
     if (byteCount >= maxBytes) {
-      console.warn(`CanonicalTritDecoder: Reached maximum byte limit (${maxBytes}) - number too large!`);
-      console.warn(`Original value was: ${this.value.toString().slice(0, 100)}...`);
+      console.warn(
+        `CanonicalTritDecoder: Reached maximum byte limit (${maxBytes}) - number too large!`,
+      );
+      console.warn(
+        `Original value was: ${this.value.toString().slice(0, 100)}...`,
+      );
     }
 
     return new Uint8Array(bytes);
