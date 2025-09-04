@@ -1,7 +1,13 @@
 import { CanonicalTritDecoder } from "../utils/canonicalTritDecoder";
 import { LFSRDescrambler } from "../utils/lfsrDescrambler";
 import { CRC16 } from "../utils/crc16";
+import { Frame } from "../types";
 const path = require("path");
+
+interface FeskDecoderPrivate {
+  removePilots: (trits: number[]) => number[];
+  decodeTritsInternal: (trits: number[]) => Frame | null;
+}
 
 /**
  * Integration tests for complete FESK decoding using known sequences
@@ -192,7 +198,8 @@ describe("FESK Integration Tests", () => {
       // Validate that pilot removal works correctly
       const { FeskDecoder } = await import("../feskDecoder");
       const decoder = new FeskDecoder();
-      const cleanedTrits = (decoder as any).removePilots(payloadTrits);
+      const decoderPrivate = decoder as unknown as FeskDecoderPrivate;
+      const cleanedTrits = decoderPrivate.removePilots(payloadTrits);
 
       expect(cleanedTrits.length).toBe(133); // Should remove exactly 2 pilots
       expect(payloadTrits.length - cleanedTrits.length).toBe(2);
@@ -215,7 +222,7 @@ describe("FESK Integration Tests", () => {
         0, 0, 1, 0, 0, 0, 0, 2, 0, 2, 2,
       ];
       console.log(`Correct "truth" payload: ${correctTrits.length} trits`);
-      const correctResult = (decoder as any).decodeTritsInternal(correctTrits);
+      const correctResult = decoderPrivate.decodeTritsInternal(correctTrits);
       console.log(`Correct result: ${correctResult ? "SUCCESS" : "NULL"}`);
       if (correctResult) {
         console.log(
@@ -231,7 +238,7 @@ describe("FESK Integration Tests", () => {
         2, 1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 2, 2, 1, 0,
       ];
       console.log(`Working "test" payload: ${workingSequence.length} trits`);
-      const workingResult = (decoder as any).decodeTritsInternal(
+      const workingResult = decoderPrivate.decodeTritsInternal(
         workingSequence,
       );
       console.log(`Working result: ${workingResult ? "SUCCESS" : "NULL"}`);
@@ -243,7 +250,7 @@ describe("FESK Integration Tests", () => {
       }
 
       console.log(`\nBroken "truth" payload: ${cleanedTrits.length} trits`);
-      const brokenResult = (decoder as any).decodeTritsInternal(cleanedTrits);
+      const brokenResult = decoderPrivate.decodeTritsInternal(cleanedTrits);
       console.log(`Broken result: ${brokenResult ? "SUCCESS" : "NULL"}`);
 
       // Let's examine the trit-to-byte conversion step by step
@@ -447,11 +454,12 @@ describe("FESK Integration Tests", () => {
       console.log(`Main branch payload length: ${mainBranchPayload.length}`);
 
       // Test with pilot removal
-      const mainCleaned = (decoder as any).removePilots(mainBranchPayload);
+      const mainDecoderPrivate = decoder as unknown as FeskDecoderPrivate;
+      const mainCleaned = mainDecoderPrivate.removePilots(mainBranchPayload);
       console.log(`Main branch after pilot removal: ${mainCleaned.length}`);
 
       // Try to decode it
-      const mainResult = (decoder as any).decodeTritsInternal(mainCleaned);
+      const mainResult = mainDecoderPrivate.decodeTritsInternal(mainCleaned);
       console.log(`Main branch result: ${mainResult ? "SUCCESS" : "NULL"}`);
       if (mainResult) {
         console.log(
@@ -608,7 +616,8 @@ describe("FESK Integration Tests", () => {
       console.log(`Hello payload length: ${helloPayload.length}`);
 
       // Test if "hello" decodes correctly
-      const helloResult = (decoder as any).decodeTritsInternal(helloPayload);
+      const helloDecoderPrivate = decoder as unknown as FeskDecoderPrivate;
+      const helloResult = helloDecoderPrivate.decodeTritsInternal(helloPayload);
       console.log(`Hello result: ${helloResult ? "SUCCESS" : "NULL"}`);
       if (helloResult) {
         console.log(
