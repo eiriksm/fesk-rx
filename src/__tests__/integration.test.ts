@@ -1,7 +1,6 @@
 import { CanonicalTritDecoder } from "../utils/canonicalTritDecoder";
 import { LFSRDescrambler } from "../utils/lfsrDescrambler";
 import { CRC16 } from "../utils/crc16";
-import { Frame } from "../types";
 const path = require("path");
 
 /**
