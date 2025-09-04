@@ -231,7 +231,9 @@ describe("FESK Integration Tests", () => {
         2, 1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 2, 2, 1, 0,
       ];
       console.log(`Working "test" payload: ${workingSequence.length} trits`);
-      const workingResult = (decoder as any).decodeTritsInternal(workingSequence);
+      const workingResult = (decoder as any).decodeTritsInternal(
+        workingSequence,
+      );
       console.log(`Working result: ${workingResult ? "SUCCESS" : "NULL"}`);
       if (workingResult) {
         console.log(
