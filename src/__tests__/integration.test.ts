@@ -4,11 +4,6 @@ import { CRC16 } from "../utils/crc16";
 import { Frame } from "../types";
 const path = require("path");
 
-interface FeskDecoderPrivate {
-  removePilots: (trits: number[]) => number[];
-  decodeTritsInternal: (trits: number[]) => Frame | null;
-}
-
 /**
  * Integration tests for complete FESK decoding using known sequences
  */
@@ -160,8 +155,9 @@ describe("FESK Integration Tests", () => {
       // Since trit-to-byte conversion is complex for long sequences,
       // validate that the decoder can handle the TX-generated packed bytes correctly
       const txPackedBytes = [
-        0xC1, 0xED, 0x9C, 0x24, 0xF5, 0x52, 0xFF, 0x95, 0xC6, 0x25, 0xE1, 0x43, 
-        0xC2, 0x50, 0x03, 0x6D, 0xF1, 0x6C, 0x52, 0xDE, 0x09, 0x4A, 0x49, 0x34, 0x7C, 0xBA
+        0xc1, 0xed, 0x9c, 0x24, 0xf5, 0x52, 0xff, 0x95, 0xc6, 0x25, 0xe1, 0x43,
+        0xc2, 0x50, 0x03, 0x6d, 0xf1, 0x6c, 0x52, 0xde, 0x09, 0x4a, 0x49, 0x34,
+        0x7c, 0xba,
       ];
 
       const descrambler = new LFSRDescrambler();
@@ -174,7 +170,10 @@ describe("FESK Integration Tests", () => {
         payload[i] = descrambler.descrambleByte(txPackedBytes[2 + i]);
       }
 
-      const crcBytes = txPackedBytes.slice(2 + payloadLength, 2 + payloadLength + 2);
+      const crcBytes = txPackedBytes.slice(
+        2 + payloadLength,
+        2 + payloadLength + 2,
+      );
       const receivedCrc = (crcBytes[0] << 8) | crcBytes[1];
       const calculatedCrc = CRC16.calculate(payload);
 
@@ -189,7 +188,7 @@ describe("FESK Integration Tests", () => {
       expect(result.isValid).toBe(true);
       expect(result.header.payloadLength).toBe(22);
       expect(result.message).toBe("the truth is out there");
-      expect(result.crc).toBe(0x7CBA);
+      expect(result.crc).toBe(0x7cba);
     });
 
     it("should demonstrate new async processAudioComplete API", async () => {
@@ -347,7 +346,7 @@ describe("FESK Integration Tests", () => {
       }
 
       expect(decodedFrame).not.toBeNull();
-      
+
       const message = new TextDecoder().decode(decodedFrame!.payload);
       console.log(`🎉 Successfully decoded: "${message}"`);
       expect(message).toBe("test");
