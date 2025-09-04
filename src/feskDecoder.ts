@@ -579,7 +579,6 @@ export class FeskDecoder {
               return decoder.getBytes();
             })();
       if (allBytes.length < 4) {
-        console.log(`DEBUG: Not enough bytes: ${allBytes.length} < 4`);
         return null;
       }
 
