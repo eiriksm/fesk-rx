@@ -9,10 +9,14 @@
     "dev": "ts-node src/index.ts",
     "lint": "eslint src --ext .ts",
     "test": "jest",
+    "test:verbose": "jest --verbose --no-cache --runInBand --detectOpenHandles --forceExit",
+    "test:debug": "NODE_ENV=test DEBUG=* jest --verbose --no-cache --runInBand --detectOpenHandles --forceExit --silent=false --logHeapUsage",
+    "test:ci": "jest --verbose --ci --coverage --watchAll=false --runInBand --forceExit",
+    "test:single": "jest --verbose --no-cache --runInBand --testNamePattern",
     "prettier-check": "prettier --check src/*",
     "unit": "npm test",
     "check-exports": "attw --pack .",
-    "type-check": "npx tsc --noEmit && npm run check-exports"
+    "type-check": "npx tsc && npm run check-exports"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",

@@ -1,19 +1,25 @@
 import { ToneDetector } from "./toneDetector";
 import { PreambleDetector } from "./preambleDetector";
 import { SyncDetector } from "./syncDetector";
-import { AudioSample, Frame, SymbolDetection } from "./types";
+import { AudioSample, Frame, SymbolDetection, ToneDetection } from "./types";
 import { FeskConfig, DEFAULT_CONFIG } from "./config";
 import { CanonicalTritDecoder } from "./utils/canonicalTritDecoder";
 import { LFSRDescrambler } from "./utils/lfsrDescrambler";
 import { CRC16 } from "./utils/crc16";
 
-interface DecoderState {
+export interface DecoderState {
   phase: "searching" | "sync" | "payload";
   tritBuffer: number[];
   estimatedSymbolDuration: number;
   estimatedFrequencies: [number, number, number];
   frameStartTime: number;
   tritCount: number;
+}
+
+interface SymbolCandidate {
+  symbol: number;
+  confidence: number;
+  timestamp: number;
 }
 
 /**
@@ -25,6 +31,9 @@ export class FeskDecoder {
   private preambleDetector: PreambleDetector;
   private syncDetector: SyncDetector;
   private state: DecoderState;
+  private symbolCandidates: SymbolCandidate[] = [];
+  private lastCommittedSymbolTime: number = 0;
+  private timingOptimized: boolean = false;
 
   constructor(config: FeskConfig = DEFAULT_CONFIG) {
     this.config = config;
@@ -71,8 +80,129 @@ export class FeskDecoder {
     }
   }
 
+  /**
+   * Process continuous audio data automatically and return when frame is decoded
+   * @param audioData Full audio data to process
+   * @param sampleRate Audio sample rate
+   * @param chunkSizeMs Size of processing chunks in milliseconds (default: 100ms)
+   * @returns Promise that resolves with decoded frame or null if no valid frame found
+   */
+  async processAudioComplete(
+    audioData: Float32Array,
+    sampleRate: number,
+    chunkSizeMs: number = 100,
+  ): Promise<Frame | null> {
+    const chunkSize = Math.floor(sampleRate * (chunkSizeMs / 1000));
+    let chunkCount = 0;
+
+    for (let i = 0; i < audioData.length; i += chunkSize) {
+      const chunkEnd = Math.min(i + chunkSize, audioData.length);
+      const chunk = audioData.slice(i, chunkEnd);
+
+      if (chunk.length < chunkSize) break;
+
+      const timestamp = chunkCount * chunkSizeMs;
+      const audioSample: AudioSample = {
+        data: chunk,
+        timestamp,
+        sampleRate,
+      };
+
+      const frame = this.processAudio(audioSample);
+
+      if (frame && frame.isValid) {
+        return frame;
+      }
+
+      chunkCount++;
+      // Safety limit - don't process more than 30 seconds of audio
+      if (chunkCount > 30000 / chunkSizeMs) break;
+
+      // Yield to event loop every 10 chunks to keep UI responsive
+      if (chunkCount % 10 === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Process WAV file directly from file path
+   * @param wavPath Path to WAV file
+   * @param offsetSec Audio offset in seconds (default: 0)
+   * @param chunkSizeMs Processing chunk size in milliseconds (default: 100ms)
+   * @returns Promise that resolves with decoded frame or null
+   */
+  async processWavFile(
+    wavPath: string,
+    offsetSec: number = 0,
+    chunkSizeMs: number = 100,
+  ): Promise<Frame | null> {
+    const { WavReader } = await import("./utils/wavReader");
+    const audioData = await WavReader.readWavFileWithOffset(wavPath, offsetSec);
+    return this.processAudioComplete(
+      audioData.data,
+      audioData.sampleRate,
+      chunkSizeMs,
+    );
+  }
+
+  /**
+   * Get current decoding progress information
+   * @returns Object with phase, progress percentage, and current trit count
+   */
+  getProgress(): {
+    phase: string;
+    progressPercent: number;
+    tritCount: number;
+    estimatedComplete: boolean;
+  } {
+    const minTritsForDecode = 20;
+    // const maxExpectedTrits = 200; // Reasonable upper bound
+
+    let progressPercent = 0;
+    let estimatedComplete = false;
+
+    if (this.state.phase === "payload") {
+      progressPercent = Math.min(
+        (this.state.tritCount / minTritsForDecode) * 100,
+        100,
+      );
+      estimatedComplete = this.state.tritCount >= minTritsForDecode;
+    } else if (this.state.phase === "sync") {
+      progressPercent = 10; // Made it past preamble
+    }
+
+    return {
+      phase: this.state.phase,
+      progressPercent,
+      tritCount: this.state.tritCount,
+      estimatedComplete,
+    };
+  }
+
+  /**
+   * Check if decoder is ready to attempt frame decode
+   * @returns True if enough data has been collected to attempt decoding
+   */
+  isReadyToDecode(): boolean {
+    return this.state.phase === "payload" && this.state.tritBuffer.length >= 20;
+  }
+
+  /**
+   * Force attempt to decode current buffer (useful for partial frames)
+   * @returns Decoded frame or null if unsuccessful
+   */
+  forceAttemptDecode(): Frame | null {
+    if (this.state.tritBuffer.length === 0) {
+      return null;
+    }
+    return this.attemptDecode();
+  }
+
   private handleSearchingPhase(
-    toneDetections: any[],
+    toneDetections: ToneDetection[],
     timestamp: number,
   ): Frame | null {
     const preambleResult = this.preambleDetector.processToneDetections(
@@ -94,13 +224,14 @@ export class FeskDecoder {
   }
 
   private handleSyncPhase(
-    toneDetections: any[],
+    toneDetections: ToneDetection[],
     timestamp: number,
   ): Frame | null {
     // Use symbol decimation - take the best detection per chunk (same as preamble detector)
     if (toneDetections.length > 0) {
-      const bestDetection = toneDetections.reduce((best: any, current: any) =>
-        current.confidence > best.confidence ? current : best,
+      const bestDetection = toneDetections.reduce(
+        (best: ToneDetection, current: ToneDetection) =>
+          current.confidence > best.confidence ? current : best,
       );
 
       const symbol = this.toneToSymbol(bestDetection.frequency);
@@ -117,6 +248,8 @@ export class FeskDecoder {
           this.state.phase = "payload";
           this.state.tritBuffer = [];
           this.state.tritCount = 0;
+          this.symbolCandidates = [];
+          this.lastCommittedSymbolTime = timestamp;
           return null;
         }
       }
@@ -126,45 +259,134 @@ export class FeskDecoder {
   }
 
   private handlePayloadPhase(
-    toneDetections: any[],
+    toneDetections: ToneDetection[],
     timestamp: number,
   ): Frame | null {
-    // Use symbol decimation - take the best detection per chunk
-    if (toneDetections.length > 0) {
-      const bestDetection = toneDetections.reduce((best: any, current: any) =>
-        current.confidence > best.confidence ? current : best,
-      );
+    // Collect symbol candidates from all detections in this chunk
+    const candidates: SymbolCandidate[] = [];
 
-      const symbol = this.toneToSymbol(bestDetection.frequency);
+    for (const detection of toneDetections) {
+      const symbol = this.toneToSymbol(detection.frequency);
       if (symbol !== null) {
+        candidates.push({
+          symbol,
+          confidence: detection.confidence,
+          timestamp,
+        });
+      }
+    }
+
+    // Add candidates to our voting window
+    this.symbolCandidates.push(...candidates);
+
+    // Remove old candidates (keep only last 300ms worth)
+    const windowTimeMs = 300;
+    this.symbolCandidates = this.symbolCandidates.filter(
+      (candidate) => timestamp - candidate.timestamp < windowTimeMs,
+    );
+
+    // Commit symbol every 100ms (symbol period)
+    const symbolPeriodMs = 100;
+    if (timestamp - this.lastCommittedSymbolTime >= symbolPeriodMs) {
+      const committedSymbol = this.performMajorityVoting(timestamp);
+
+      if (committedSymbol !== null) {
         // Check for pilot sequences [0,2] every 64 trits
         if (this.state.tritCount > 0 && this.state.tritCount % 64 === 0) {
-          // Look ahead for pilot sequence
-          if (symbol === 0) {
-            // This might be the start of a pilot, we'll handle it in the next detection
+          if (committedSymbol === 0) {
             console.log(
               `Potential pilot start at trit ${this.state.tritCount}`,
             );
           }
-          // For now, just continue - pilot removal will be handled later
         }
 
-        this.state.tritBuffer.push(symbol);
+        this.state.tritBuffer.push(committedSymbol);
         this.state.tritCount++;
+        this.lastCommittedSymbolTime = timestamp;
 
-        // Try to decode when we have a reasonable amount of data
+        // Try to decode when we have enough data
         if (this.state.tritBuffer.length >= 20) {
-          // Minimum for header + some payload
           const frame = this.attemptDecode();
           if (frame) {
             this.reset();
             return frame;
           }
         }
+      } else {
+        // Fall back to simple best detection if majority voting fails
+        if (toneDetections.length > 0) {
+          const bestDetection = toneDetections.reduce(
+            (best: ToneDetection, current: ToneDetection) =>
+              current.confidence > best.confidence ? current : best,
+          );
+
+          const symbol = this.toneToSymbol(bestDetection.frequency);
+          if (symbol !== null) {
+            this.state.tritBuffer.push(symbol);
+            this.state.tritCount++;
+            this.lastCommittedSymbolTime = timestamp;
+
+            // Try to decode when we have enough data
+            if (this.state.tritBuffer.length >= 20) {
+              const frame = this.attemptDecode();
+              if (frame) {
+                this.reset();
+                return frame;
+              }
+            }
+          }
+        }
       }
     }
 
     return null;
+  }
+
+  private performMajorityVoting(currentTimestamp: number): number | null {
+    if (this.symbolCandidates.length === 0) {
+      return null;
+    }
+
+    // Only consider recent candidates (last 120ms for tighter focus)
+    const recentCandidates = this.symbolCandidates.filter(
+      (candidate) => currentTimestamp - candidate.timestamp < 120,
+    );
+
+    if (recentCandidates.length === 0) {
+      return null;
+    }
+
+    // For synthetic audio or single detections, just return the best recent candidate
+    if (recentCandidates.length === 1) {
+      return recentCandidates[0].symbol;
+    }
+
+    // Count votes for each symbol, weighted by confidence and recency
+    const votes = new Map<number, number>();
+
+    for (const candidate of recentCandidates) {
+      // Weight heavily by confidence and recency
+      const age = currentTimestamp - candidate.timestamp;
+      const recencyWeight = Math.exp(-age / 40); // Faster decay over 40ms
+
+      // Square the confidence to emphasize high-confidence detections
+      const weight = Math.pow(candidate.confidence, 1.5) * recencyWeight;
+
+      votes.set(candidate.symbol, (votes.get(candidate.symbol) || 0) + weight);
+    }
+
+    // Find symbol with highest weighted vote
+    let bestSymbol: number | null = null;
+    let bestScore = 0;
+
+    for (const [symbol, score] of votes.entries()) {
+      if (score > bestScore) {
+        bestScore = score;
+        bestSymbol = symbol;
+      }
+    }
+
+    return bestSymbol;
   }
 
   private attemptDecode(): Frame | null {
@@ -217,37 +439,31 @@ export class FeskDecoder {
         crc: receivedCrc,
         isValid: receivedCrc === calculatedCrc,
       };
-    } catch (error) {
+    } catch {
       // Decoding failed, need more data
       return null;
     }
   }
 
   private removePilots(trits: number[]): number[] {
-    const PILOT_INTERVAL = 64;
-    const cleaned: number[] = [];
+    const interval = 64; // FESK_PILOT_INTERVAL
+    if (interval <= 0) return trits.slice();
+
+    const out: number[] = [];
     let dataCount = 0;
     let i = 0;
 
     while (i < trits.length) {
-      // Check if we've reached a pilot interval
-      if (dataCount > 0 && dataCount % PILOT_INTERVAL === 0) {
-        // Look ahead for [0,2] pilot sequence
-        if (i < trits.length - 1 && trits[i] === 0 && trits[i + 1] === 2) {
-          i += 2; // Skip both pilot trits
-          // DO NOT increment dataCount for pilots
-          continue;
-        }
-        // Be tolerant: if pilots are missing, just keep going
+      if (dataCount > 0 && dataCount % interval === 0) {
+        const p0 = trits[i],
+          p1 = trits[i + 1];
+        if (p0 === 0 && p1 === 2) i += 2; // drop [0,2]
       }
-
-      // Add data trit and increment counter
-      cleaned.push(trits[i]);
+      if (i >= trits.length) break;
+      out.push(trits[i++]); // count only data trits
       dataCount++;
-      i++;
     }
-
-    return cleaned;
+    return out;
   }
 
   private toneToSymbol(frequency: number): number | null {
@@ -265,6 +481,154 @@ export class FeskDecoder {
     return { ...this.state };
   }
 
+  /**
+   * Process a complete transmission sequence (preamble + sync + payload)
+   * @param symbols Complete symbol sequence including preamble, sync, and payload
+   * @returns Decoded frame or null if unsuccessful
+   */
+  processCompleteTransmission(symbols: number[]): Frame | null {
+    this.reset();
+
+    const chunkSizeMs = 100;
+    let currentTime = 0;
+
+    for (let i = 0; i < symbols.length; i++) {
+      const symbol = symbols[i];
+      const timestamp = currentTime;
+
+      // Create mock tone detection for this symbol
+      const mockToneDetection = {
+        frequency: this.state.estimatedFrequencies[symbol],
+        magnitude: 1.0,
+        confidence: 1.0,
+      };
+
+      // Process through the phase handlers directly
+      let result: Frame | null = null;
+
+      switch (this.state.phase) {
+        case "searching":
+          result = this.handleSearchingPhase([mockToneDetection], timestamp);
+          break;
+
+        case "sync":
+          result = this.handleSyncPhase([mockToneDetection], timestamp);
+          break;
+
+        case "payload":
+          result = this.handlePayloadPhase([mockToneDetection], timestamp);
+          break;
+      }
+
+      if (result && result.isValid) {
+        return result;
+      }
+
+      currentTime += chunkSizeMs;
+
+      // Safety limit
+      if (i > 1000) break;
+    }
+
+    return null;
+  }
+
+  /**
+   * Process a complete symbol sequence directly (for testing)
+   * Skips preamble/sync detection and goes straight to payload processing
+   */
+  processSymbolSequence(symbols: number[]): Frame | null {
+    // Reset to payload state
+    this.state.phase = "payload";
+    this.state.tritBuffer = [];
+    this.state.tritCount = 0;
+
+    // Add all symbols to trit buffer
+    for (const symbol of symbols) {
+      this.state.tritBuffer.push(symbol);
+      this.state.tritCount++;
+    }
+
+    return this.attemptDecode();
+  }
+
+  /**
+   * Decode a trit sequence directly (for testing)
+   * Bypasses all protocol overhead and decodes raw payload trits
+   */
+  static decodeTrits(trits: number[]): Frame | null {
+    const decoder = new FeskDecoder();
+
+    // Use the private methods directly
+    const cleanedTrits = decoder.removePilots(trits);
+    return decoder.decodeTritsInternal(cleanedTrits);
+  }
+
+  private decodeTritsInternal(trits: number[]): Frame | null {
+    try {
+      // Convert trits to bytes using canonical MS-first algorithm
+      // Use chunked approach for long sequences to avoid mathematical precision issues
+      const allBytes =
+        trits.length > 50
+          ? CanonicalTritDecoder.decodeLongSequence(trits)
+          : (() => {
+              const decoder = new CanonicalTritDecoder();
+              for (const trit of trits) {
+                decoder.addTrit(trit);
+              }
+              return decoder.getBytes();
+            })();
+      if (allBytes.length < 4) {
+        return null;
+      }
+
+      // Descramble header+payload continuously (as per TX algorithm)
+      // The TX scrambler is continuous, so RX must descramble in one pass
+      const descrambler = new LFSRDescrambler();
+
+      // Get payload length first to know how much to descramble
+      const tempDescrambler = new LFSRDescrambler();
+      const headerHi = tempDescrambler.descrambleByte(allBytes[0]);
+      const headerLo = tempDescrambler.descrambleByte(allBytes[1]);
+      const payloadLength = (headerHi << 8) | headerLo;
+
+      // Validate payload length and total size
+      if (
+        payloadLength <= 0 ||
+        payloadLength > 64 ||
+        allBytes.length < 2 + payloadLength + 2
+      ) {
+        return null;
+      }
+
+      // Descramble header+payload continuously
+      const headerAndPayloadScrambled = allBytes.slice(0, 2 + payloadLength);
+      const headerAndPayload = new Uint8Array(2 + payloadLength);
+      for (let i = 0; i < headerAndPayload.length; i++) {
+        headerAndPayload[i] = descrambler.descrambleByte(
+          headerAndPayloadScrambled[i],
+        );
+      }
+
+      // Extract payload (skip header)
+      const payload = headerAndPayload.slice(2);
+
+      // Extract CRC (unscrambled in new format)
+      const crcBytes = allBytes.slice(2 + payloadLength, 2 + payloadLength + 2);
+      const receivedCrc = (crcBytes[0] << 8) | crcBytes[1];
+      const calculatedCrc = CRC16.calculate(payload);
+
+      return {
+        header: { payloadLength },
+        payload,
+        crc: receivedCrc,
+        isValid: receivedCrc === calculatedCrc,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   reset(): void {
     this.state = {
       phase: "searching",
@@ -279,6 +643,9 @@ export class FeskDecoder {
       tritCount: 0,
     };
 
+    this.symbolCandidates = [];
+    this.lastCommittedSymbolTime = 0;
+    this.timingOptimized = false;
     this.preambleDetector.reset();
     this.syncDetector.reset();
   }

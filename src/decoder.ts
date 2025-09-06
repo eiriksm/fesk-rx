@@ -1,7 +1,13 @@
 import { ToneDetector } from "./toneDetector";
-import { PreambleDetector, PreambleDetectionResult } from "./preambleDetector";
-import { SyncDetector, SyncDetectionResult } from "./syncDetector";
-import { AudioSample, DecoderState, Frame, SymbolDetection } from "./types";
+import { PreambleDetector } from "./preambleDetector";
+import { SyncDetector } from "./syncDetector";
+import {
+  AudioSample,
+  DecoderState,
+  Frame,
+  SymbolDetection,
+  ToneDetection,
+} from "./types";
 import { FeskConfig, DEFAULT_CONFIG } from "./config";
 import { TritDecoder } from "./utils/tritDecoder";
 import { LFSRDescrambler } from "./utils/lfsrDescrambler";
@@ -79,7 +85,7 @@ export class FeskDecoder {
   }
 
   private handleSearchingPhase(
-    toneDetections: any[],
+    toneDetections: ToneDetection[],
     timestamp: number,
   ): Frame | null {
     // Look for preamble pattern
@@ -102,15 +108,15 @@ export class FeskDecoder {
   }
 
   private handlePreamblePhase(
-    toneDetections: any[],
-    timestamp: number,
+    _toneDetections: ToneDetection[],
+    _timestamp: number,
   ): Frame | null {
     // This phase is handled in searching phase
     return null;
   }
 
   private handleSyncPhase(
-    toneDetections: any[],
+    toneDetections: ToneDetection[],
     timestamp: number,
   ): Frame | null {
     // Convert tone detections to symbols and look for Barker-13 sync
@@ -139,8 +145,8 @@ export class FeskDecoder {
   }
 
   private handleHeaderPhase(
-    toneDetections: any[],
-    timestamp: number,
+    toneDetections: ToneDetection[],
+    _timestamp: number,
   ): Frame | null {
     // Convert tone detections to symbols and collect header trits
     for (const detection of toneDetections) {
@@ -183,8 +189,8 @@ export class FeskDecoder {
   }
 
   private handlePayloadPhase(
-    toneDetections: any[],
-    timestamp: number,
+    toneDetections: ToneDetection[],
+    _timestamp: number,
   ): Frame | null {
     // Convert tone detections to symbols and collect payload trits
     for (const detection of toneDetections) {

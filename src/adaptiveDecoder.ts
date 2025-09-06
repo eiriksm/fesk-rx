@@ -181,7 +181,7 @@ export class AdaptiveFeskDecoder {
       let bestConfidence = 0;
 
       for (const detection of detections) {
-        const [f0, _, f2] = this.config.toneFrequencies;
+        const [f0, , f2] = this.config.toneFrequencies;
         let symbol = -1;
 
         if (Math.abs(detection.frequency - f0) < 100) symbol = 0;
@@ -284,7 +284,7 @@ export class AdaptiveFeskDecoder {
     return null;
   }
 
-  private processPayload(audioSample: AudioSample): Frame | null {
+  private processPayload(_audioSample: AudioSample): Frame | null {
     // Payload processing would go here
     console.log("📦 Processing payload...");
     return null;

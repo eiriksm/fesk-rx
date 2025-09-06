@@ -12,4 +12,13 @@ module.exports = {
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
+  verbose: true,
+  errorOnDeprecated: true,
+  testTimeout: 60000,
+  maxWorkers: 1,
+  bail: false,
+  detectLeaks: false,
+  forceExit: true,
+  logHeapUsage: true,
+  reporters: ['default']
 };

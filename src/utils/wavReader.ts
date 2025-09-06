@@ -1,5 +1,5 @@
 import * as fs from "fs";
-const { decode } = require("wav-decoder");
+import { decode } from "wav-decoder";
 import { AudioSample } from "../types";
 
 export class WavReader {

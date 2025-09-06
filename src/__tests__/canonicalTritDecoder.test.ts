@@ -46,28 +46,23 @@ describe("CanonicalTritDecoder", () => {
       const allBytes = decoder.getBytes();
       expect(allBytes.length).toBe(8); // header(2) + payload(4) + crc(2)
 
-      // Expected bytes: [0xc1, 0xff, 0x9c, 0x29, 0xe3, 0x06, 0x1f, 0xc6]
       expect(allBytes).toEqual(
         new Uint8Array([0xc1, 0xff, 0x9c, 0x29, 0xe3, 0x06, 0x1f, 0xc6]),
       );
 
-      // Verify the decoding by descrambling
       const descrambler = new LFSRDescrambler();
 
-      // Header
       const headerHi = descrambler.descrambleByte(allBytes[0]);
       const headerLo = descrambler.descrambleByte(allBytes[1]);
       const payloadLength = (headerHi << 8) | headerLo;
       expect(payloadLength).toBe(4);
 
-      // Payload
       const payload = new Uint8Array(4);
       for (let i = 0; i < 4; i++) {
         payload[i] = descrambler.descrambleByte(allBytes[2 + i]);
       }
       expect(new TextDecoder().decode(payload)).toBe("test");
 
-      // CRC
       const receivedCrc = (allBytes[6] << 8) | allBytes[7];
       const calculatedCrc = CRC16.calculate(payload);
       expect(receivedCrc).toBe(calculatedCrc);
@@ -77,7 +72,6 @@ describe("CanonicalTritDecoder", () => {
 
   describe("four56MessageDecoding", () => {
     it('should decode "four56" payload trits correctly', () => {
-      // Known payload trits for "four56"
       const payloadTrits = [
         1, 0, 2, 1, 1, 1, 0, 0, 2, 1, 0, 0, 1, 0, 2, 1, 2, 2, 2, 0, 2, 0, 2, 1,
         1, 2, 1, 1, 0, 2, 1, 2, 2, 0, 2, 0, 0, 2, 1, 1, 2, 2, 2, 1, 1, 2, 1, 2,
@@ -91,30 +85,25 @@ describe("CanonicalTritDecoder", () => {
       const allBytes = decoder.getBytes();
       expect(allBytes.length).toBe(10); // header(2) + payload(6) + crc(2)
 
-      // Expected bytes: [0xc1, 0xfd, 0x8e, 0x23, 0xe5, 0x00, 0xbe, 0xd1, 0x44, 0x61]
       expect(allBytes).toEqual(
         new Uint8Array([
           0xc1, 0xfd, 0x8e, 0x23, 0xe5, 0x00, 0xbe, 0xd1, 0x44, 0x61,
         ]),
       );
 
-      // Verify the decoding
       const descrambler = new LFSRDescrambler();
 
-      // Header
       const headerHi = descrambler.descrambleByte(allBytes[0]);
       const headerLo = descrambler.descrambleByte(allBytes[1]);
       const payloadLength = (headerHi << 8) | headerLo;
       expect(payloadLength).toBe(6);
 
-      // Payload
       const payload = new Uint8Array(6);
       for (let i = 0; i < 6; i++) {
         payload[i] = descrambler.descrambleByte(allBytes[2 + i]);
       }
       expect(new TextDecoder().decode(payload)).toBe("four56");
 
-      // CRC
       const receivedCrc = (allBytes[8] << 8) | allBytes[9];
       const calculatedCrc = CRC16.calculate(payload);
       expect(receivedCrc).toBe(calculatedCrc);
@@ -132,7 +121,6 @@ describe("CanonicalTritDecoder", () => {
     });
 
     it("should extract exact number of bytes without padding", () => {
-      // Add trits to make a larger value
       for (let i = 0; i < 10; i++) {
         decoder.addTrit(2);
       }
