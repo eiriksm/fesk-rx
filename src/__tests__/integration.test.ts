@@ -626,9 +626,9 @@ describe("FESK Integration Tests", () => {
                 const symbol =
                   best.freq === 2400
                     ? 0
-                    : best.freq === 3000
+                    : best.freq === 2880
                       ? 1
-                      : best.freq === 3600
+                      : best.freq === 3360
                         ? 2
                         : -1;
                 if (symbol >= 0) {
