@@ -773,6 +773,32 @@ describe("FESK Integration Tests", () => {
     expect(message).toBe("test");
   });
 
+  it("should demonstrate new decoder API methods on fesk2", async () => {
+    const { FeskDecoder } = await import("../feskDecoder");
+
+    const decoder = new FeskDecoder();
+
+    // Test progress tracking
+    const progress = decoder.getProgress();
+    expect(progress.phase).toBe("searching");
+    expect(progress.progressPercent).toBe(0);
+    expect(progress.tritCount).toBe(0);
+    expect(progress.estimatedComplete).toBe(false);
+    expect(decoder.isReadyToDecode()).toBe(false);
+
+    // Test direct WAV file processing
+    const wavPath = path.join(__dirname, "../../testdata/fesk2.wav");
+    const startTime = (await decoder.findTransmissionStartFromWav(
+      wavPath,
+    )) as number;
+    const frame = await decoder.processWavFile(wavPath, startTime / 1000);
+
+    expect(frame).not.toBeNull();
+    expect(frame!.isValid).toBe(true);
+    const message = new TextDecoder().decode(frame!.payload);
+    expect(message).toBe("three45");
+  });
+
   it("should demonstrate OptimizedFeskDecoder new API methods", async () => {
     const { OptimizedFeskDecoder } = await import("../utils/optimizedDecoder");
 
