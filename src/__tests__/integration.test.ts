@@ -1,6 +1,7 @@
 import { CanonicalTritDecoder } from "../utils/canonicalTritDecoder";
 import { LFSRDescrambler } from "../utils/lfsrDescrambler";
 import { CRC16 } from "../utils/crc16";
+import { Frame } from "../types";
 const path = require("path");
 
 /**
@@ -197,7 +198,7 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
-        0.4,
+        0.3,
       );
 
       const decoder = new FeskDecoder();
@@ -416,43 +417,16 @@ describe("FESK Integration Tests", () => {
 
       // Use 40ms timing offset that was found to be optimal for fesk2.wav
       const decoder = new OptimizedFeskDecoder(40);
-      const decodedFrame = await decoder.decodeWavFile(wavPath, 2.6);
+      const decodedFrame = await decoder.decodeWavFile(wavPath, 0.25) as Frame;
 
-      if (decodedFrame && decodedFrame.isValid) {
-        // SUCCESS! Verify we decoded "three45"
-        const message = new TextDecoder().decode(decodedFrame.payload);
-        console.log(`🎉 Successfully decoded: "${message}"`);
-        expect(message).toBe("three45");
-        expect(decodedFrame.header.payloadLength).toBe(
-          decodedFrame.payload.length,
-        );
-        expect(decodedFrame.header.payloadLength).toBe(7);
-      } else {
-        // Try to find optimal timing automatically if hardcoded doesn't work
-        console.log("❌ Hardcoded timing failed, trying auto-discovery...");
-        const optimalOffset = await OptimizedFeskDecoder.findOptimalTiming(
-          wavPath,
-          2.6,
-          "three45",
-        );
-
-        if (optimalOffset > 0) {
-          const retryDecoder = new OptimizedFeskDecoder(optimalOffset);
-          const retryFrame = await retryDecoder.decodeWavFile(wavPath, 2.6);
-
-          if (retryFrame && retryFrame.isValid) {
-            const message = new TextDecoder().decode(retryFrame.payload);
-            console.log(`🎉 Auto-discovered timing successful: "${message}"`);
-            expect(message).toBe("three45");
-            return;
-          }
-        }
-
-        console.log("❌ Failed to decode fesk2.wav to 'three45' message");
-        expect(decodedFrame).not.toBeNull();
-        expect(decodedFrame!.isValid).toBe(true);
-        expect(new TextDecoder().decode(decodedFrame!.payload)).toBe("three45");
-      }
+      // SUCCESS! Verify we decoded "three45"
+      const message = new TextDecoder().decode(decodedFrame.payload);
+      console.log(`🎉 Successfully decoded: "${message}"`);
+      expect(message).toBe("three45");
+      expect(decodedFrame.header.payloadLength).toBe(
+        decodedFrame.payload.length,
+      );
+      expect(decodedFrame.header.payloadLength).toBe(7);
     });
 
     it("should detect tones in fesk1.wav audio", async () => {
@@ -801,7 +775,7 @@ describe("FESK Integration Tests", () => {
 
     // Test direct WAV file processing
     const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-    const frame = await decoder.processWavFile(wavPath, 0.4);
+    const frame = await decoder.processWavFile(wavPath, 0.3);
 
     expect(frame).not.toBeNull();
     expect(frame!.isValid).toBe(true);
@@ -821,7 +795,7 @@ describe("FESK Integration Tests", () => {
 
     // Test direct WAV file processing with optimization
     const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-    const frame = await decoder.processWavFileOptimized(wavPath, 0.4);
+    const frame = await decoder.processWavFileOptimized(wavPath, 0.3);
 
     expect(frame).not.toBeNull();
     expect(frame!.isValid).toBe(true);
