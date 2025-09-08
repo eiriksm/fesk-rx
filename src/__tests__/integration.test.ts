@@ -300,8 +300,8 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
-        0.4,
-      ); // Skip 400ms silence
+        0.3,
+      ); // Skip 300ms silence
 
       const chunkSize = 0.1; // 100ms chunks
       const totalChunks = Math.floor(
@@ -361,7 +361,7 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
-        0.4,
+        0.3,
       );
 
       const chunkSize = 0.1;
@@ -624,11 +624,11 @@ describe("FESK Integration Tests", () => {
                   a.conf > b.conf ? a : b,
                 );
                 const symbol =
-                  best.freq === 2400
+                  best.freq === 2240
                     ? 0
-                    : best.freq === 2880
+                    : best.freq === 3200
                       ? 1
-                      : best.freq === 3360
+                      : best.freq === 4480
                         ? 2
                         : -1;
                 if (symbol >= 0) {
