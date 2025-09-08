@@ -440,15 +440,6 @@ describe("FESK Integration Tests", () => {
       // Read the WAV file
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioChunks = await WavReader.readWavFileInChunks(wavPath, 0.1); // 100ms chunks
-
-      console.log(
-        `Analyzing ${audioChunks.length} audio chunks for tone detection`,
-      );
-      console.log(`Sample rate: ${audioChunks[0].sampleRate} Hz`);
-      console.log(
-        `Expected tone frequencies: ${DEFAULT_CONFIG.toneFrequencies} Hz`,
-      );
-
       // Create tone detector
       const toneDetector = new ToneDetector(DEFAULT_CONFIG);
       let totalToneDetections = 0;
@@ -477,33 +468,25 @@ describe("FESK Integration Tests", () => {
       console.log(
         `Total tone detections in first ${chunksToAnalyze} chunks: ${totalToneDetections}`,
       );
+      const uniqueFreqs = [
+        ...new Set(toneFrequencies.map((f) => Math.round(f / 10) * 10)),
+      ].sort((a, b) => a - b);
+      console.log(`Unique tone frequencies detected: ${uniqueFreqs} Hz`);
 
-      if (toneFrequencies.length > 0) {
-        const uniqueFreqs = [
-          ...new Set(toneFrequencies.map((f) => Math.round(f / 10) * 10)),
-        ].sort((a, b) => a - b);
-        console.log(`Unique tone frequencies detected: ${uniqueFreqs} Hz`);
+      // Check if detected frequencies are close to expected ones
+      const [f0, f1, f2] = DEFAULT_CONFIG.toneFrequencies;
+      const tolerance = 100; // Hz
 
-        // Check if detected frequencies are close to expected ones
-        const [f0, f1, f2] = DEFAULT_CONFIG.toneFrequencies;
-        const tolerance = 100; // Hz
+      const hasF0 = toneFrequencies.some((f) => Math.abs(f - f0) < tolerance);
+      const hasF1 = toneFrequencies.some((f) => Math.abs(f - f1) < tolerance);
+      const hasF2 = toneFrequencies.some((f) => Math.abs(f - f2) < tolerance);
 
-        const hasF0 = toneFrequencies.some((f) => Math.abs(f - f0) < tolerance);
-        const hasF1 = toneFrequencies.some((f) => Math.abs(f - f1) < tolerance);
-        const hasF2 = toneFrequencies.some((f) => Math.abs(f - f2) < tolerance);
+      console.log(
+        `Detected expected frequencies: F0(${f0}Hz)=${hasF0}, F1(${f1}Hz)=${hasF1}, F2(${f2}Hz)=${hasF2}`,
+      );
 
-        console.log(
-          `Detected expected frequencies: F0(${f0}Hz)=${hasF0}, F1(${f1}Hz)=${hasF1}, F2(${f2}Hz)=${hasF2}`,
-        );
-
-        // Expect at least some tone detections
-        expect(totalToneDetections).toBeGreaterThan(0);
-      } else {
-        console.log(
-          "No tones detected - audio may be silent or frequencies don't match expected range",
-        );
-        expect(totalToneDetections).toBe(0); // This confirms our finding
-      }
+      // Expect at least some tone detections
+      expect(totalToneDetections).toBeGreaterThan(0);
     });
 
     it("should extract correct tone sequence from fesk1.wav audio", async () => {
@@ -763,7 +746,7 @@ describe("FESK Integration Tests", () => {
     });
   });
 
-  it("should demonstrate new decoder API methods", async () => {
+  it("should demonstrate new decoder API methods on fesk1", async () => {
     const { FeskDecoder } = await import("../feskDecoder");
 
     const decoder = new FeskDecoder();
@@ -778,7 +761,8 @@ describe("FESK Integration Tests", () => {
 
     // Test direct WAV file processing
     const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-    const frame = await decoder.processWavFile(wavPath, 0.3);
+    const startTime = await decoder.findTransmissionStartFromWav(wavPath) as number;
+    const frame = await decoder.processWavFile(wavPath, startTime / 1000);
 
     expect(frame).not.toBeNull();
     expect(frame!.isValid).toBe(true);
