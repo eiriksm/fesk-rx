@@ -417,7 +417,10 @@ describe("FESK Integration Tests", () => {
 
       // Use 40ms timing offset that was found to be optimal for fesk2.wav
       const decoder = new OptimizedFeskDecoder(40);
-      const decodedFrame = await decoder.decodeWavFile(wavPath, 0.25) as Frame;
+      const decodedFrame = (await decoder.decodeWavFile(
+        wavPath,
+        0.25,
+      )) as Frame;
 
       // SUCCESS! Verify we decoded "three45"
       const message = new TextDecoder().decode(decodedFrame.payload);
