@@ -417,6 +417,7 @@ describe("FESK Integration Tests", () => {
 
       // Use 40ms timing offset that was found to be optimal for fesk2.wav
       const decoder = new OptimizedFeskDecoder(40);
+
       const decodedFrame = (await decoder.decodeWavFile(
         wavPath,
         0.25,
@@ -761,7 +762,9 @@ describe("FESK Integration Tests", () => {
 
     // Test direct WAV file processing
     const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-    const startTime = await decoder.findTransmissionStartFromWav(wavPath) as number;
+    const startTime = (await decoder.findTransmissionStartFromWav(
+      wavPath,
+    )) as number;
     const frame = await decoder.processWavFile(wavPath, startTime / 1000);
 
     expect(frame).not.toBeNull();

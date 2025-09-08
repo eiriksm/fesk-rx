@@ -161,23 +161,23 @@ export class FeskDecoder {
     energyThreshold: number = 0.01,
   ): number | null {
     const windowSize = Math.floor(sampleRate * 0.01); // 10ms windows
-    
+
     for (let i = 0; i < audioData.length - windowSize; i += windowSize) {
       const chunk = audioData.slice(i, i + windowSize);
-      
+
       // Calculate RMS energy
       let energy = 0;
       for (const sample of chunk) {
         energy += sample * sample;
       }
       energy = Math.sqrt(energy / chunk.length);
-      
+
       // If energy exceeds threshold, this is likely the start
       if (energy > energyThreshold) {
         return (i / sampleRate) * 1000;
       }
     }
-    
+
     return null;
   }
 
