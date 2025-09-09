@@ -208,42 +208,45 @@ export class FeskDecoder {
    */
   async extractSymbolsFromWav(
     wavPath: string,
-    startOffsetSeconds: number = 0
+    startOffsetSeconds: number = 0,
   ): Promise<number[]> {
     const { WavReader } = await import("./utils/wavReader");
-    const audioData = await WavReader.readWavFileWithOffset(wavPath, startOffsetSeconds);
-    
+    const audioData = await WavReader.readWavFileWithOffset(
+      wavPath,
+      startOffsetSeconds,
+    );
+
     const audioSample = {
       data: audioData.data,
       sampleRate: audioData.sampleRate,
-      timestamp: startOffsetSeconds * 1000 // Convert to ms
+      timestamp: startOffsetSeconds * 1000, // Convert to ms
     };
-    
+
     return this.toneDetector.extractSymbols(audioSample, 0);
   }
 
   /**
    * Complete WAV-to-symbols pipeline: detect transmission start and extract symbols
-   * @param wavPath Path to WAV file  
+   * @param wavPath Path to WAV file
    * @returns Object with detected start time and extracted symbols
    */
   async decodeSymbolsFromWav(
-    wavPath: string
+    wavPath: string,
   ): Promise<{ startTime: number; symbols: number[] } | null> {
     // First detect transmission start
     const startTime = await this.findTransmissionStartFromWav(wavPath);
     if (startTime === null) {
       return null;
     }
-    
+
     const startSeconds = startTime / 1000; // Convert ms to seconds
-    
+
     // Extract symbols from the detected start point
     const symbols = await this.extractSymbolsFromWav(wavPath, startSeconds);
-    
+
     return {
       startTime,
-      symbols
+      symbols,
     };
   }
 

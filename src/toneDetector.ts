@@ -36,10 +36,15 @@ export class ToneDetector {
     sampleRate: number,
   ): ToneDetection | null {
     // Use Goertzel algorithm to detect strongest tone
-    const result = Goertzel.detectStrongestTone(window, this.config.toneFrequencies, sampleRate);
+    const result = Goertzel.detectStrongestTone(
+      window,
+      this.config.toneFrequencies,
+      sampleRate,
+    );
 
     // Calculate confidence threshold - require reasonable strength
-    if (result.strength > 0.01) { // Minimum strength threshold
+    if (result.strength > 0.01) {
+      // Minimum strength threshold
       return {
         frequency: this.config.toneFrequencies[result.toneIndex],
         magnitude: result.strength,
@@ -53,36 +58,50 @@ export class ToneDetector {
   /**
    * Extract symbols from audio using optimal timing and Goertzel algorithm
    */
-  extractSymbols(audioSample: AudioSample, startOffsetSeconds: number = 0): number[] {
+  extractSymbols(
+    audioSample: AudioSample,
+    startOffsetSeconds: number = 0,
+  ): number[] {
     const symbols: number[] = [];
     const data = audioSample.data;
     const sampleRate = audioSample.sampleRate;
-    
-    const symbolDurationSamples = Math.floor(this.config.symbolDuration * sampleRate);
+
+    const symbolDurationSamples = Math.floor(
+      this.config.symbolDuration * sampleRate,
+    );
     const analysisWindowSamples = this.windowSize; // Use our optimized window size
     const startOffsetSamples = Math.floor(startOffsetSeconds * sampleRate);
-    
+
     let symbolIndex = 0;
-    const maxSymbols = Math.floor((data.length - startOffsetSamples) / symbolDurationSamples);
-    
+    const maxSymbols = Math.floor(
+      (data.length - startOffsetSamples) / symbolDurationSamples,
+    );
+
     while (symbolIndex < maxSymbols) {
-      const symbolStartSample = startOffsetSamples + symbolIndex * symbolDurationSamples;
-      const windowCenterSample = symbolStartSample + Math.floor(symbolDurationSamples / 2);
-      const windowStartSample = windowCenterSample - Math.floor(analysisWindowSamples / 2);
+      const symbolStartSample =
+        startOffsetSamples + symbolIndex * symbolDurationSamples;
+      const windowCenterSample =
+        symbolStartSample + Math.floor(symbolDurationSamples / 2);
+      const windowStartSample =
+        windowCenterSample - Math.floor(analysisWindowSamples / 2);
       const windowEndSample = windowStartSample + analysisWindowSamples;
-      
+
       if (windowEndSample >= data.length) break;
-      
+
       const segment = data.slice(windowStartSample, windowEndSample);
-      const result = Goertzel.detectStrongestTone(segment, this.config.toneFrequencies, sampleRate);
-      
+      const result = Goertzel.detectStrongestTone(
+        segment,
+        this.config.toneFrequencies,
+        sampleRate,
+      );
+
       symbols.push(result.toneIndex);
       symbolIndex++;
-      
+
       // Stop if we have a reasonable number of symbols for a complete transmission
       if (symbols.length >= 300) break;
     }
-    
+
     return symbols;
   }
 }
