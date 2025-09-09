@@ -1,6 +1,6 @@
-import { fft } from "fft-js";
 import { ToneDetection, AudioSample } from "./types";
 import { FeskConfig } from "./config";
+import { Goertzel } from "./utils/goertzel";
 
 export class ToneDetector {
   private config: FeskConfig;
@@ -9,14 +9,10 @@ export class ToneDetector {
 
   constructor(config: FeskConfig) {
     this.config = config;
-    // Use window size optimized for FESK tone detection
-    // For 44.1kHz, we want good frequency resolution around 2-4kHz
-    const windowDurationMs = 25; // 25ms window for good time/freq tradeoff
-    const windowSamples = Math.floor(
-      (config.sampleRate * windowDurationMs) / 1000,
-    );
-    this.windowSize = Math.pow(2, Math.ceil(Math.log2(windowSamples))); // Round to next power of 2
-    this.hopSize = Math.floor(this.windowSize / 8); // More overlap for better detection
+    // Use window size optimized for FESK tone detection with Goertzel
+    const windowDurationMs = 30; // 30ms window for good balance
+    this.windowSize = Math.floor((config.sampleRate * windowDurationMs) / 1000);
+    this.hopSize = Math.floor(this.windowSize / 2); // 50% overlap
   }
 
   detectTones(audioSample: AudioSample): ToneDetection[] {
@@ -39,78 +35,54 @@ export class ToneDetector {
     window: Float32Array,
     sampleRate: number,
   ): ToneDetection | null {
-    // Apply Hamming window
-    const windowedData = this.applyHammingWindow(window);
+    // Use Goertzel algorithm to detect strongest tone
+    const result = Goertzel.detectStrongestTone(window, this.config.toneFrequencies, sampleRate);
 
-    // Pad to next power of 2 for efficient FFT
-    const fftSize = Math.pow(2, Math.ceil(Math.log2(windowedData.length)));
-    const paddedData = new Array(fftSize).fill(0);
-    for (let i = 0; i < windowedData.length; i++) {
-      paddedData[i] = windowedData[i];
-    }
-
-    // Compute FFT
-    const fftResult = fft(paddedData);
-    const magnitudes = fftResult.map((c: number[]) =>
-      Math.sqrt(c[0] * c[0] + c[1] * c[1]),
-    );
-
-    // Find peak energies at expected frequencies
-    const [f0, f1, f2] = this.config.toneFrequencies;
-    const freqResolution = sampleRate / fftSize;
-
-    const energies = [
-      this.getEnergyAtFrequency(magnitudes, f0, freqResolution),
-      this.getEnergyAtFrequency(magnitudes, f1, freqResolution),
-      this.getEnergyAtFrequency(magnitudes, f2, freqResolution),
-    ];
-
-    // Find the tone with maximum energy
-    const maxIndex = energies.indexOf(Math.max(...energies));
-    const maxEnergy = energies[maxIndex];
-
-    // Calculate confidence based on energy ratio
-    const totalEnergy = energies.reduce((sum, e) => sum + e, 0);
-    const confidence = totalEnergy > 0 ? maxEnergy / totalEnergy : 0;
-
-    // Only return detection if confidence is above threshold
-    if (confidence > 0.3) {
-      // Require at least 30% of energy in the detected tone
+    // Calculate confidence threshold - require reasonable strength
+    if (result.strength > 0.01) { // Minimum strength threshold
       return {
-        frequency: this.config.toneFrequencies[maxIndex],
-        magnitude: maxEnergy,
-        confidence: confidence,
+        frequency: this.config.toneFrequencies[result.toneIndex],
+        magnitude: result.strength,
+        confidence: result.strength, // Use strength directly as confidence
       };
     }
 
     return null;
   }
 
-  private applyHammingWindow(data: Float32Array): Float32Array {
-    const windowed = new Float32Array(data.length);
-    for (let i = 0; i < data.length; i++) {
-      const w = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (data.length - 1));
-      windowed[i] = data[i] * w;
+  /**
+   * Extract symbols from audio using optimal timing and Goertzel algorithm
+   */
+  extractSymbols(audioSample: AudioSample, startOffsetSeconds: number = 0): number[] {
+    const symbols: number[] = [];
+    const data = audioSample.data;
+    const sampleRate = audioSample.sampleRate;
+    
+    const symbolDurationSamples = Math.floor(this.config.symbolDuration * sampleRate);
+    const analysisWindowSamples = this.windowSize; // Use our optimized window size
+    const startOffsetSamples = Math.floor(startOffsetSeconds * sampleRate);
+    
+    let symbolIndex = 0;
+    const maxSymbols = Math.floor((data.length - startOffsetSamples) / symbolDurationSamples);
+    
+    while (symbolIndex < maxSymbols) {
+      const symbolStartSample = startOffsetSamples + symbolIndex * symbolDurationSamples;
+      const windowCenterSample = symbolStartSample + Math.floor(symbolDurationSamples / 2);
+      const windowStartSample = windowCenterSample - Math.floor(analysisWindowSamples / 2);
+      const windowEndSample = windowStartSample + analysisWindowSamples;
+      
+      if (windowEndSample >= data.length) break;
+      
+      const segment = data.slice(windowStartSample, windowEndSample);
+      const result = Goertzel.detectStrongestTone(segment, this.config.toneFrequencies, sampleRate);
+      
+      symbols.push(result.toneIndex);
+      symbolIndex++;
+      
+      // Stop if we have a reasonable number of symbols for a complete transmission
+      if (symbols.length >= 300) break;
     }
-    return windowed;
-  }
-
-  private getEnergyAtFrequency(
-    magnitudes: number[],
-    frequency: number,
-    freqResolution: number,
-  ): number {
-    const binIndex = Math.round(frequency / freqResolution);
-    const bandwidth = Math.ceil((frequency * 0.05) / freqResolution); // 5% bandwidth around target
-
-    let energy = 0;
-    const startBin = Math.max(0, binIndex - bandwidth);
-    const endBin = Math.min(magnitudes.length - 1, binIndex + bandwidth);
-
-    for (let i = startBin; i <= endBin; i++) {
-      energy += magnitudes[i] * magnitudes[i];
-    }
-
-    return energy;
+    
+    return symbols;
   }
 }
