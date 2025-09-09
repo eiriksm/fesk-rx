@@ -9,10 +9,14 @@ export class ToneDetector {
 
   constructor(config: FeskConfig) {
     this.config = config;
-    // Use window size optimized for FESK tone detection with Goertzel
-    const windowDurationMs = 30; // 30ms window for good balance
-    this.windowSize = Math.floor((config.sampleRate * windowDurationMs) / 1000);
-    this.hopSize = Math.floor(this.windowSize / 2); // 50% overlap
+    // Use window size optimized for FESK tone detection
+    // For 44.1kHz, we want good frequency resolution around 2-4kHz
+    const windowDurationMs = 25; // 25ms window for good time/freq tradeoff (matching original)
+    const windowSamples = Math.floor(
+      (config.sampleRate * windowDurationMs) / 1000,
+    );
+    this.windowSize = Math.pow(2, Math.ceil(Math.log2(windowSamples))); // Round to next power of 2 for consistency
+    this.hopSize = Math.floor(this.windowSize / 8); // More overlap for better detection (matching original)
   }
 
   detectTones(audioSample: AudioSample): ToneDetection[] {
@@ -35,24 +39,44 @@ export class ToneDetector {
     window: Float32Array,
     sampleRate: number,
   ): ToneDetection | null {
-    // Use Goertzel algorithm to detect strongest tone
-    const result = Goertzel.detectStrongestTone(
-      window,
+    // Apply Hamming window for better frequency resolution (matching old FFT behavior)
+    const windowedData = this.applyHammingWindow(window);
+
+    // Get all frequency strengths
+    const strengths = Goertzel.getFrequencyStrengths(
+      windowedData,
       this.config.toneFrequencies,
       sampleRate,
     );
 
-    // Calculate confidence threshold - require reasonable strength
-    if (result.strength > 0.01) {
-      // Minimum strength threshold
+    // Find the tone with maximum energy (like old FFT approach)
+    const maxIndex = strengths.indexOf(Math.max(...strengths));
+    const maxStrength = strengths[maxIndex];
+
+    // Calculate confidence based on energy ratio (matching old logic)
+    const totalStrength = strengths.reduce((sum, s) => sum + s, 0);
+    const confidence = totalStrength > 0 ? maxStrength / totalStrength : 0;
+
+    // Only return detection if confidence is above threshold (matching old 30% threshold)
+    if (confidence > 0.3 && maxStrength > 0.001) {
+      // Require both confidence and minimum strength
       return {
-        frequency: this.config.toneFrequencies[result.toneIndex],
-        magnitude: result.strength,
-        confidence: result.strength, // Use strength directly as confidence
+        frequency: this.config.toneFrequencies[maxIndex],
+        magnitude: maxStrength,
+        confidence: confidence,
       };
     }
 
     return null;
+  }
+
+  private applyHammingWindow(data: Float32Array): Float32Array {
+    const windowed = new Float32Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      const w = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (data.length - 1));
+      windowed[i] = data[i] * w;
+    }
+    return windowed;
   }
 
   /**
