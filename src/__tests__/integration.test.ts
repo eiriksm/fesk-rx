@@ -1,6 +1,7 @@
 import { CanonicalTritDecoder } from "../utils/canonicalTritDecoder";
 import { LFSRDescrambler } from "../utils/lfsrDescrambler";
 import { CRC16 } from "../utils/crc16";
+import { Frame } from "../types";
 const path = require("path");
 
 /**
@@ -197,7 +198,7 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
-        0.4,
+        0.3,
       );
 
       const decoder = new FeskDecoder();
@@ -300,8 +301,8 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
-        0.4,
-      ); // Skip 400ms silence
+        0.3,
+      ); // Skip 300ms silence
 
       const chunkSize = 0.1; // 100ms chunks
       const totalChunks = Math.floor(
@@ -361,7 +362,7 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
-        0.4,
+        0.3,
       );
 
       const chunkSize = 0.1;
@@ -416,43 +417,20 @@ describe("FESK Integration Tests", () => {
 
       // Use 40ms timing offset that was found to be optimal for fesk2.wav
       const decoder = new OptimizedFeskDecoder(40);
-      const decodedFrame = await decoder.decodeWavFile(wavPath, 2.6);
 
-      if (decodedFrame && decodedFrame.isValid) {
-        // SUCCESS! Verify we decoded "three45"
-        const message = new TextDecoder().decode(decodedFrame.payload);
-        console.log(`🎉 Successfully decoded: "${message}"`);
-        expect(message).toBe("three45");
-        expect(decodedFrame.header.payloadLength).toBe(
-          decodedFrame.payload.length,
-        );
-        expect(decodedFrame.header.payloadLength).toBe(7);
-      } else {
-        // Try to find optimal timing automatically if hardcoded doesn't work
-        console.log("❌ Hardcoded timing failed, trying auto-discovery...");
-        const optimalOffset = await OptimizedFeskDecoder.findOptimalTiming(
-          wavPath,
-          2.6,
-          "three45",
-        );
+      const decodedFrame = (await decoder.decodeWavFile(
+        wavPath,
+        0.25,
+      )) as Frame;
 
-        if (optimalOffset > 0) {
-          const retryDecoder = new OptimizedFeskDecoder(optimalOffset);
-          const retryFrame = await retryDecoder.decodeWavFile(wavPath, 2.6);
-
-          if (retryFrame && retryFrame.isValid) {
-            const message = new TextDecoder().decode(retryFrame.payload);
-            console.log(`🎉 Auto-discovered timing successful: "${message}"`);
-            expect(message).toBe("three45");
-            return;
-          }
-        }
-
-        console.log("❌ Failed to decode fesk2.wav to 'three45' message");
-        expect(decodedFrame).not.toBeNull();
-        expect(decodedFrame!.isValid).toBe(true);
-        expect(new TextDecoder().decode(decodedFrame!.payload)).toBe("three45");
-      }
+      // SUCCESS! Verify we decoded "three45"
+      const message = new TextDecoder().decode(decodedFrame.payload);
+      console.log(`🎉 Successfully decoded: "${message}"`);
+      expect(message).toBe("three45");
+      expect(decodedFrame.header.payloadLength).toBe(
+        decodedFrame.payload.length,
+      );
+      expect(decodedFrame.header.payloadLength).toBe(7);
     });
 
     it("should detect tones in fesk1.wav audio", async () => {
@@ -463,15 +441,6 @@ describe("FESK Integration Tests", () => {
       // Read the WAV file
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
       const audioChunks = await WavReader.readWavFileInChunks(wavPath, 0.1); // 100ms chunks
-
-      console.log(
-        `Analyzing ${audioChunks.length} audio chunks for tone detection`,
-      );
-      console.log(`Sample rate: ${audioChunks[0].sampleRate} Hz`);
-      console.log(
-        `Expected tone frequencies: ${DEFAULT_CONFIG.toneFrequencies} Hz`,
-      );
-
       // Create tone detector
       const toneDetector = new ToneDetector(DEFAULT_CONFIG);
       let totalToneDetections = 0;
@@ -500,33 +469,25 @@ describe("FESK Integration Tests", () => {
       console.log(
         `Total tone detections in first ${chunksToAnalyze} chunks: ${totalToneDetections}`,
       );
+      const uniqueFreqs = [
+        ...new Set(toneFrequencies.map((f) => Math.round(f / 10) * 10)),
+      ].sort((a, b) => a - b);
+      console.log(`Unique tone frequencies detected: ${uniqueFreqs} Hz`);
 
-      if (toneFrequencies.length > 0) {
-        const uniqueFreqs = [
-          ...new Set(toneFrequencies.map((f) => Math.round(f / 10) * 10)),
-        ].sort((a, b) => a - b);
-        console.log(`Unique tone frequencies detected: ${uniqueFreqs} Hz`);
+      // Check if detected frequencies are close to expected ones
+      const [f0, f1, f2] = DEFAULT_CONFIG.toneFrequencies;
+      const tolerance = 100; // Hz
 
-        // Check if detected frequencies are close to expected ones
-        const [f0, f1, f2] = DEFAULT_CONFIG.toneFrequencies;
-        const tolerance = 100; // Hz
+      const hasF0 = toneFrequencies.some((f) => Math.abs(f - f0) < tolerance);
+      const hasF1 = toneFrequencies.some((f) => Math.abs(f - f1) < tolerance);
+      const hasF2 = toneFrequencies.some((f) => Math.abs(f - f2) < tolerance);
 
-        const hasF0 = toneFrequencies.some((f) => Math.abs(f - f0) < tolerance);
-        const hasF1 = toneFrequencies.some((f) => Math.abs(f - f1) < tolerance);
-        const hasF2 = toneFrequencies.some((f) => Math.abs(f - f2) < tolerance);
+      console.log(
+        `Detected expected frequencies: F0(${f0}Hz)=${hasF0}, F1(${f1}Hz)=${hasF1}, F2(${f2}Hz)=${hasF2}`,
+      );
 
-        console.log(
-          `Detected expected frequencies: F0(${f0}Hz)=${hasF0}, F1(${f1}Hz)=${hasF1}, F2(${f2}Hz)=${hasF2}`,
-        );
-
-        // Expect at least some tone detections
-        expect(totalToneDetections).toBeGreaterThan(0);
-      } else {
-        console.log(
-          "No tones detected - audio may be silent or frequencies don't match expected range",
-        );
-        expect(totalToneDetections).toBe(0); // This confirms our finding
-      }
+      // Expect at least some tone detections
+      expect(totalToneDetections).toBeGreaterThan(0);
     });
 
     it("should extract correct tone sequence from fesk1.wav audio", async () => {
@@ -624,11 +585,11 @@ describe("FESK Integration Tests", () => {
                   a.conf > b.conf ? a : b,
                 );
                 const symbol =
-                  best.freq === 2400
+                  best.freq === 2240
                     ? 0
-                    : best.freq === 3000
+                    : best.freq === 3200
                       ? 1
-                      : best.freq === 3600
+                      : best.freq === 4480
                         ? 2
                         : -1;
                 if (symbol >= 0) {
@@ -786,7 +747,7 @@ describe("FESK Integration Tests", () => {
     });
   });
 
-  it("should demonstrate new decoder API methods", async () => {
+  it("should demonstrate new decoder API methods on fesk1", async () => {
     const { FeskDecoder } = await import("../feskDecoder");
 
     const decoder = new FeskDecoder();
@@ -801,12 +762,41 @@ describe("FESK Integration Tests", () => {
 
     // Test direct WAV file processing
     const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-    const frame = await decoder.processWavFile(wavPath, 0.4);
+    const startTime = (await decoder.findTransmissionStartFromWav(
+      wavPath,
+    )) as number;
+    const frame = await decoder.processWavFile(wavPath, startTime / 1000);
 
     expect(frame).not.toBeNull();
     expect(frame!.isValid).toBe(true);
     const message = new TextDecoder().decode(frame!.payload);
     expect(message).toBe("test");
+  });
+
+  it("should demonstrate new decoder API methods on fesk2", async () => {
+    const { FeskDecoder } = await import("../feskDecoder");
+
+    const decoder = new FeskDecoder();
+
+    // Test progress tracking
+    const progress = decoder.getProgress();
+    expect(progress.phase).toBe("searching");
+    expect(progress.progressPercent).toBe(0);
+    expect(progress.tritCount).toBe(0);
+    expect(progress.estimatedComplete).toBe(false);
+    expect(decoder.isReadyToDecode()).toBe(false);
+
+    // Test direct WAV file processing
+    const wavPath = path.join(__dirname, "../../testdata/fesk2.wav");
+    const startTime = (await decoder.findTransmissionStartFromWav(
+      wavPath,
+    )) as number;
+    const frame = await decoder.processWavFile(wavPath, startTime / 1000);
+
+    expect(frame).not.toBeNull();
+    expect(frame!.isValid).toBe(true);
+    const message = new TextDecoder().decode(frame!.payload);
+    expect(message).toBe("three45");
   });
 
   it("should demonstrate OptimizedFeskDecoder new API methods", async () => {
@@ -821,7 +811,7 @@ describe("FESK Integration Tests", () => {
 
     // Test direct WAV file processing with optimization
     const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
-    const frame = await decoder.processWavFileOptimized(wavPath, 0.4);
+    const frame = await decoder.processWavFileOptimized(wavPath, 0.3);
 
     expect(frame).not.toBeNull();
     expect(frame!.isValid).toBe(true);

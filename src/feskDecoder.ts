@@ -149,6 +149,58 @@ export class FeskDecoder {
   }
 
   /**
+   * Find the start of transmission in audio buffer using energy detection
+   * @param audioData Float32Array of audio samples
+   * @param sampleRate Audio sample rate in Hz
+   * @param energyThreshold Energy threshold for detection (default: 0.01)
+   * @returns Time in milliseconds when transmission starts, or null if not found
+   */
+  findTransmissionStart(
+    audioData: Float32Array,
+    sampleRate: number,
+    energyThreshold: number = 0.01,
+  ): number | null {
+    const windowSize = Math.floor(sampleRate * 0.01); // 10ms windows
+
+    for (let i = 0; i < audioData.length - windowSize; i += windowSize) {
+      const chunk = audioData.slice(i, i + windowSize);
+
+      // Calculate RMS energy
+      let energy = 0;
+      for (const sample of chunk) {
+        energy += sample * sample;
+      }
+      energy = Math.sqrt(energy / chunk.length);
+
+      // If energy exceeds threshold, this is likely the start
+      if (energy > energyThreshold) {
+        return (i / sampleRate) * 1000;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find the start of transmission in a WAV file
+   * @param wavPath Path to WAV file
+   * @param energyThreshold Energy threshold for detection (default: 0.01)
+   * @returns Promise that resolves with time in milliseconds when transmission starts, or null if not found
+   */
+  async findTransmissionStartFromWav(
+    wavPath: string,
+    energyThreshold: number = 0.01,
+  ): Promise<number | null> {
+    const { WavReader } = await import("./utils/wavReader");
+    const audioData = await WavReader.readWavFile(wavPath);
+    return this.findTransmissionStart(
+      audioData.data,
+      audioData.sampleRate,
+      energyThreshold,
+    );
+  }
+
+  /**
    * Get current decoding progress information
    * @returns Object with phase, progress percentage, and current trit count
    */

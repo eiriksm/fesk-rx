@@ -11,7 +11,7 @@ export interface FeskConfig {
 export const DEFAULT_CONFIG: FeskConfig = {
   sampleRate: 44100, // Updated to match actual audio files
   symbolDuration: 0.1, // 100ms - discovered from fesk1.wav analysis
-  toneFrequencies: [2400, 3000, 3600], // 4:5:6 major triad
+  toneFrequencies: [2240, 3200, 4480], // 4:5:6 major triad
   preambleBits: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0], // 12 bit alternating pattern
   barker13: [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1], // Barker-13 sequence
   pilotSequence: [0, 2], // [f0, f2]
