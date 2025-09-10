@@ -8,7 +8,6 @@ const path = require("path");
  * Integration tests for complete FESK decoding using known sequences
  */
 describe("FESK Integration Tests", () => {
-
   describe("Known Message Sequences", () => {
     it('should decode "test" message correctly', () => {
       const testSequence = [
@@ -154,7 +153,8 @@ describe("FESK Integration Tests", () => {
 
       const { FeskDecoder } = require("../feskDecoder");
       const decoder = new FeskDecoder();
-      const result = decoder.decodeCompleteTransmissionWithPilots(uptimeSequence);
+      const result =
+        decoder.decodeCompleteTransmissionWithPilots(uptimeSequence);
 
       expect(result.preambleValid).toBe(true);
       expect(result.syncValid).toBe(true);
@@ -422,15 +422,6 @@ describe("FESK Integration Tests", () => {
 
     it("should extract correct tone sequence from fesk1.wav audio", async () => {
       const { WavReader } = await import("../utils/wavReader");
-      const { ToneDetector } = await import("../toneDetector");
-      const { DEFAULT_CONFIG } = await import("../config");
-
-      // Known tone sequence for "test" message in fesk1.wav
-      const expectedToneSequence = [
-        2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0,
-        2, 1, 0, 1, 1, 0, 0, 1, 0, 1, 2, 2, 1, 0, 2, 0, 1, 1, 0, 1, 1, 1, 1, 1,
-        2, 2, 1, 0, 2, 2, 1, 0, 1, 0, 2, 1, 2, 0, 2, 2, 1, 0,
-      ];
 
       // Read audio file
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
@@ -450,7 +441,9 @@ describe("FESK Integration Tests", () => {
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
 
       const decoder = new (await import("../feskDecoder")).FeskDecoder();
-      const startTime = await decoder.findTransmissionStartFromWav(wavPath) as number;
+      const startTime = (await decoder.findTransmissionStartFromWav(
+        wavPath,
+      )) as number;
       const audioWithOffset = await WavReader.readWavFileWithOffset(
         wavPath,
         startTime / 1000,
@@ -704,9 +697,13 @@ describe("FESK Integration Tests", () => {
     console.log(`   Preamble valid: ${result.preambleValid}`);
     console.log(`   Sync valid: ${result.syncValid}`);
     console.log(`   Errors: ${result.errors}`);
-    console.log(`   Message: "${result.frame ? new TextDecoder().decode(result.frame.payload) : 'N/A'}"`);
+    console.log(
+      `   Message: "${result.frame ? new TextDecoder().decode(result.frame.payload) : "N/A"}"`,
+    );
     console.log(`   Valid CRC: ${result.frame?.isValid ?? false}`);
-    console.log(`   Payload length: ${result.frame?.payload.length ?? 0} bytes`);
+    console.log(
+      `   Payload length: ${result.frame?.payload.length ?? 0} bytes`,
+    );
     console.log(`   Detected symbols: ${detectedSymbols.length}`);
 
     // Test expectations - demonstrate that we successfully:

@@ -763,33 +763,38 @@ export class FeskDecoder {
     errors: string[];
   } {
     const errors: string[] = [];
-    
+
     if (symbols.length < 25) {
-      errors.push(`Insufficient symbols: expected at least 25, got ${symbols.length}`);
+      errors.push(
+        `Insufficient symbols: expected at least 25, got ${symbols.length}`,
+      );
       return { frame: null, preambleValid: false, syncValid: false, errors };
     }
 
     // Validate preamble (first 12 symbols)
     const preambleBits = symbols.slice(0, 12).map((s) => (s === 2 ? 1 : 0));
     const expectedPreamble = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
-    const preambleValid = JSON.stringify(preambleBits) === JSON.stringify(expectedPreamble);
-    
+    const preambleValid =
+      JSON.stringify(preambleBits) === JSON.stringify(expectedPreamble);
+
     if (!preambleValid) {
-      errors.push(`Invalid preamble: expected ${expectedPreamble}, got ${preambleBits}`);
+      errors.push(
+        `Invalid preamble: expected ${expectedPreamble}, got ${preambleBits}`,
+      );
     }
 
     // Validate sync pattern (symbols 12-24, 13 symbols total)
     const syncBits = symbols.slice(12, 25).map((s) => (s === 2 ? 1 : 0));
     const expectedSync = [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1];
     const syncValid = JSON.stringify(syncBits) === JSON.stringify(expectedSync);
-    
+
     if (!syncValid) {
       errors.push(`Invalid sync: expected ${expectedSync}, got ${syncBits}`);
     }
 
     // Extract payload trits (everything after preamble + sync)
     const payloadTrits = symbols.slice(25);
-    
+
     if (payloadTrits.length === 0) {
       errors.push("No payload symbols found after preamble and sync");
       return { frame: null, preambleValid, syncValid, errors };
@@ -803,7 +808,9 @@ export class FeskDecoder {
         errors.push("Failed to decode payload trits to frame");
       }
     } catch (error) {
-      errors.push(`Payload decoding error: ${error instanceof Error ? error.message : String(error)}`);
+      errors.push(
+        `Payload decoding error: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     return { frame, preambleValid, syncValid, errors };
@@ -813,32 +820,40 @@ export class FeskDecoder {
    * Decode a complete FESK transmission with pilot tone removal for uptime-style messages
    * This handles longer transmissions that include pilot tones at regular intervals
    */
-  decodeCompleteTransmissionWithPilots(symbols: number[], pilotPositions: number[] = [64, 129, 194]): {
+  decodeCompleteTransmissionWithPilots(
+    symbols: number[],
+    pilotPositions: number[] = [64, 129, 194],
+  ): {
     frame: Frame | null;
     preambleValid: boolean;
     syncValid: boolean;
     errors: string[];
   } {
     const errors: string[] = [];
-    
+
     if (symbols.length < 25) {
-      errors.push(`Insufficient symbols: expected at least 25, got ${symbols.length}`);
+      errors.push(
+        `Insufficient symbols: expected at least 25, got ${symbols.length}`,
+      );
       return { frame: null, preambleValid: false, syncValid: false, errors };
     }
 
     // Validate preamble and sync (same as regular transmission)
     const preambleBits = symbols.slice(0, 12).map((s) => (s === 2 ? 1 : 0));
     const expectedPreamble = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
-    const preambleValid = JSON.stringify(preambleBits) === JSON.stringify(expectedPreamble);
-    
+    const preambleValid =
+      JSON.stringify(preambleBits) === JSON.stringify(expectedPreamble);
+
     if (!preambleValid) {
-      errors.push(`Invalid preamble: expected ${expectedPreamble}, got ${preambleBits}`);
+      errors.push(
+        `Invalid preamble: expected ${expectedPreamble}, got ${preambleBits}`,
+      );
     }
 
     const syncBits = symbols.slice(12, 25).map((s) => (s === 2 ? 1 : 0));
     const expectedSync = [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1];
     const syncValid = JSON.stringify(syncBits) === JSON.stringify(expectedSync);
-    
+
     if (!syncValid) {
       errors.push(`Invalid sync: expected ${expectedSync}, got ${syncBits}`);
     }
@@ -858,7 +873,7 @@ export class FeskDecoder {
         cleanedTrits.splice(pos, 2);
       }
     }
-    
+
     if (cleanedTrits.length === 0) {
       errors.push("No payload symbols found after pilot removal");
       return { frame: null, preambleValid, syncValid, errors };
@@ -872,7 +887,9 @@ export class FeskDecoder {
         errors.push("Failed to decode payload trits to frame");
       }
     } catch (error) {
-      errors.push(`Payload decoding error: ${error instanceof Error ? error.message : String(error)}`);
+      errors.push(
+        `Payload decoding error: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     return { frame, preambleValid, syncValid, errors };
