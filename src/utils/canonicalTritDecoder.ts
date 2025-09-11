@@ -2,6 +2,7 @@
  * Canonical MS-first trit decoder that matches the new TX format
  * Implements the exact reverse of pack_bytes_to_trits_msfirst
  * Fixed to handle very long sequences by using chunked processing
+ * Now supports differential decoding as used in the TX library
  */
 export class CanonicalTritDecoder {
   private value: bigint = 0n;
@@ -22,6 +23,39 @@ export class CanonicalTritDecoder {
 
     // MS-trit-first: multiply current value by 3 and add new trit
     this.value = this.value * 3n + BigInt(trit);
+  }
+
+  /**
+   * Apply differential decoding to a sequence of trits
+   * This reverses the differential encoding applied in the TX library
+   */
+  static differentialDecode(encodedTrits: number[]): number[] {
+    if (encodedTrits.length === 0) {
+      return [];
+    }
+
+    const decodedTrits: number[] = [];
+    let previousTrit = 0; // Initialize to 0 as in TX library
+
+    for (const encodedTrit of encodedTrits) {
+      // Reverse: original_trit = (encoded_trit - previous_trit + 3) % 3
+      const originalTrit = (encodedTrit - previousTrit + 3) % 3;
+      decodedTrits.push(originalTrit);
+      previousTrit = encodedTrit; // Update previous trit to the encoded value
+    }
+
+    return decodedTrits;
+  }
+
+  /**
+   * Decode with differential decoding applied first
+   * This should be used for messages encoded with the new TX library
+   */
+  static decodeLongSequenceWithDifferential(
+    encodedTrits: number[],
+  ): Uint8Array {
+    const decodedTrits = CanonicalTritDecoder.differentialDecode(encodedTrits);
+    return CanonicalTritDecoder.decodeLongSequence(decodedTrits);
   }
 
   /**
