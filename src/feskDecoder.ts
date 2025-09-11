@@ -61,7 +61,8 @@ export class FeskDecoder {
   processAudio(audioSample: AudioSample): Frame | null {
     const toneDetections = this.toneDetector.detectTones(audioSample);
 
-    if (toneDetections.length === 0) {
+    // Continue processing in payload phase even with no detections (for symbol timing)
+    if (toneDetections.length === 0 && this.state.phase !== "payload") {
       return null;
     }
 
@@ -94,12 +95,17 @@ export class FeskDecoder {
   ): Promise<Frame | null> {
     const chunkSize = Math.floor(sampleRate * (chunkSizeMs / 1000));
     let chunkCount = 0;
+    // Processing audio in chunks
 
     for (let i = 0; i < audioData.length; i += chunkSize) {
       const chunkEnd = Math.min(i + chunkSize, audioData.length);
       const chunk = audioData.slice(i, chunkEnd);
 
-      if (chunk.length < chunkSize) break;
+      // Skip empty chunks but allow smaller chunks at the end
+      if (chunk.length === 0) {
+        console.log(`Skipping empty chunk at position ${i}`);
+        continue;
+      }
 
       const timestamp = chunkCount * chunkSizeMs;
       const audioSample: AudioSample = {
@@ -115,12 +121,22 @@ export class FeskDecoder {
       }
 
       chunkCount++;
-      // Safety limit - don't process more than 30 seconds of audio
-      if (chunkCount > 30000 / chunkSizeMs) break;
+      // Safety limit - don't process more than 60 seconds of audio for long messages
+      if (chunkCount > 60000 / chunkSizeMs) {
+        break;
+      }
 
       // Yield to event loop every 10 chunks to keep UI responsive
       if (chunkCount % 10 === 0) {
         await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+
+    // Final decode attempt with whatever trits we have collected
+    if (this.state.tritBuffer && this.state.tritBuffer.length >= 20) {
+      const frame = this.attemptDecode();
+      if (frame && frame.isValid) {
+        return frame;
       }
     }
 
@@ -313,7 +329,6 @@ export class FeskDecoder {
     );
 
     if (preambleResult?.detected) {
-      console.log("Preamble detected! Transitioning to sync phase...");
       this.state.phase = "sync";
       this.state.estimatedSymbolDuration =
         preambleResult.estimatedSymbolDuration;
@@ -346,7 +361,6 @@ export class FeskDecoder {
 
         const syncResult = this.syncDetector.addSymbol(symbolDetection);
         if (syncResult?.detected) {
-          console.log("Sync detected! Transitioning to payload phase...");
           this.state.phase = "payload";
           this.state.tritBuffer = [];
           this.state.tritCount = 0;
@@ -393,21 +407,20 @@ export class FeskDecoder {
       const committedSymbol = this.performMajorityVoting(timestamp);
 
       if (committedSymbol !== null) {
-        // Check for pilot sequences [0,2] every 64 trits
-        if (this.state.tritCount > 0 && this.state.tritCount % 64 === 0) {
-          if (committedSymbol === 0) {
-            console.log(
-              `Potential pilot start at trit ${this.state.tritCount}`,
-            );
-          }
-        }
-
         this.state.tritBuffer.push(committedSymbol);
         this.state.tritCount++;
         this.lastCommittedSymbolTime = timestamp;
 
         // Try to decode when we have enough data
-        if (this.state.tritBuffer.length >= 20) {
+        // For max 256-byte payload, TX library uses up to 600 trits with headroom
+        // Attempt decode at intervals, more frequently around expected lengths
+        if (
+          this.state.tritBuffer.length >= 20 &&
+          (this.state.tritBuffer.length <= 100 ||
+            this.state.tritBuffer.length % 25 === 0 ||
+            (this.state.tritBuffer.length >= 290 &&
+              this.state.tritBuffer.length <= 300))
+        ) {
           const frame = this.attemptDecode();
           if (frame) {
             this.reset();
@@ -429,7 +442,12 @@ export class FeskDecoder {
             this.lastCommittedSymbolTime = timestamp;
 
             // Try to decode when we have enough data
-            if (this.state.tritBuffer.length >= 20) {
+            // For max 256-byte payload, TX library uses up to 600 trits with headroom
+            if (
+              this.state.tritBuffer.length >= 20 &&
+              (this.state.tritBuffer.length <= 100 ||
+                this.state.tritBuffer.length % 25 === 0)
+            ) {
               const frame = this.attemptDecode();
               if (frame) {
                 this.reset();
@@ -493,12 +511,12 @@ export class FeskDecoder {
 
   private attemptDecode(): Frame | null {
     try {
-      // Remove pilots from trit buffer
-      const cleanedTrits = this.removePilots(this.state.tritBuffer);
+      // Apply differential decoding to the trit buffer before converting to bytes
+      const decodedTrits = this.differentialDecode(this.state.tritBuffer);
 
       // Convert trits to bytes using canonical MS-first algorithm
       const decoder = new CanonicalTritDecoder();
-      for (const trit of cleanedTrits) {
+      for (const trit of decodedTrits) {
         decoder.addTrit(trit);
       }
 
@@ -514,10 +532,10 @@ export class FeskDecoder {
       const headerLo = descrambler.descrambleByte(allBytes[1]);
       const payloadLength = (headerHi << 8) | headerLo;
 
-      // Validate payload length and total size
+      // Validate payload length and total size (match TX library limit of 256 bytes)
       if (
         payloadLength <= 0 ||
-        payloadLength > 64 ||
+        payloadLength > 256 ||
         allBytes.length < 2 + payloadLength + 2
       ) {
         return null; // Not enough data yet or invalid
@@ -547,25 +565,22 @@ export class FeskDecoder {
     }
   }
 
-  private removePilots(trits: number[]): number[] {
-    const interval = 64; // FESK_PILOT_INTERVAL
-    if (interval <= 0) return trits.slice();
+  /**
+   * Apply differential decoding to a sequence of trits
+   * Reverses the differential encoding: decoded = (encoded - last_encoded + 3) % 3
+   */
+  private differentialDecode(encodedTrits: number[]): number[] {
+    const decodedTrits: number[] = [];
+    let lastEncoded = 0; // Initialize to 0 as per TX implementation
 
-    const out: number[] = [];
-    let dataCount = 0;
-    let i = 0;
-
-    while (i < trits.length) {
-      if (dataCount > 0 && dataCount % interval === 0) {
-        const p0 = trits[i],
-          p1 = trits[i + 1];
-        if (p0 === 0 && p1 === 2) i += 2; // drop [0,2]
-      }
-      if (i >= trits.length) break;
-      out.push(trits[i++]); // count only data trits
-      dataCount++;
+    for (const encodedTrit of encodedTrits) {
+      // Reverse differential encoding: decoded = (encoded - last_encoded + 3) % 3
+      const decodedTrit = (encodedTrit - lastEncoded + 3) % 3;
+      decodedTrits.push(decodedTrit);
+      lastEncoded = encodedTrit;
     }
-    return out;
+
+    return decodedTrits;
   }
 
   private toneToSymbol(frequency: number): number | null {
@@ -660,10 +675,7 @@ export class FeskDecoder {
    */
   static decodeTrits(trits: number[]): Frame | null {
     const decoder = new FeskDecoder();
-
-    // Use the private methods directly
-    const cleanedTrits = decoder.removePilots(trits);
-    return decoder.decodeTritsInternal(cleanedTrits);
+    return decoder.decodeTritsInternal(trits);
   }
 
   private decodeTritsInternal(trits: number[]): Frame | null {
@@ -694,10 +706,10 @@ export class FeskDecoder {
       const headerLo = tempDescrambler.descrambleByte(allBytes[1]);
       const payloadLength = (headerHi << 8) | headerLo;
 
-      // Validate payload length and total size
+      // Validate payload length and total size (match TX library limit of 256 bytes)
       if (
         payloadLength <= 0 ||
-        payloadLength > 64 ||
+        payloadLength > 256 ||
         allBytes.length < 2 + payloadLength + 2
       ) {
         return null;
@@ -800,89 +812,13 @@ export class FeskDecoder {
       return { frame: null, preambleValid, syncValid, errors };
     }
 
+    // Apply differential decoding to payload trits
+    const decodedTrits = this.differentialDecode(payloadTrits);
+
     // Decode payload trits to frame
     let frame: Frame | null = null;
     try {
-      frame = this.decodeTritsInternal(payloadTrits);
-      if (!frame) {
-        errors.push("Failed to decode payload trits to frame");
-      }
-    } catch (error) {
-      errors.push(
-        `Payload decoding error: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
-    return { frame, preambleValid, syncValid, errors };
-  }
-
-  /**
-   * Decode a complete FESK transmission with pilot tone removal for uptime-style messages
-   * This handles longer transmissions that include pilot tones at regular intervals
-   */
-  decodeCompleteTransmissionWithPilots(
-    symbols: number[],
-    pilotPositions: number[] = [64, 129, 194],
-  ): {
-    frame: Frame | null;
-    preambleValid: boolean;
-    syncValid: boolean;
-    errors: string[];
-  } {
-    const errors: string[] = [];
-
-    if (symbols.length < 25) {
-      errors.push(
-        `Insufficient symbols: expected at least 25, got ${symbols.length}`,
-      );
-      return { frame: null, preambleValid: false, syncValid: false, errors };
-    }
-
-    // Validate preamble and sync (same as regular transmission)
-    const preambleBits = symbols.slice(0, 12).map((s) => (s === 2 ? 1 : 0));
-    const expectedPreamble = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
-    const preambleValid =
-      JSON.stringify(preambleBits) === JSON.stringify(expectedPreamble);
-
-    if (!preambleValid) {
-      errors.push(
-        `Invalid preamble: expected ${expectedPreamble}, got ${preambleBits}`,
-      );
-    }
-
-    const syncBits = symbols.slice(12, 25).map((s) => (s === 2 ? 1 : 0));
-    const expectedSync = [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1];
-    const syncValid = JSON.stringify(syncBits) === JSON.stringify(expectedSync);
-
-    if (!syncValid) {
-      errors.push(`Invalid sync: expected ${expectedSync}, got ${syncBits}`);
-    }
-
-    // Extract payload and remove pilots
-    const payloadTrits = symbols.slice(25);
-    const cleanedTrits = [...payloadTrits];
-
-    // Remove pilot tones (f0=0, f2=2 pairs) at expected positions
-    const sortedPositions = pilotPositions.sort((a, b) => b - a);
-    for (const pos of sortedPositions) {
-      if (
-        pos < cleanedTrits.length - 1 &&
-        cleanedTrits[pos] === 0 &&
-        cleanedTrits[pos + 1] === 2
-      ) {
-        cleanedTrits.splice(pos, 2);
-      }
-    }
-
-    if (cleanedTrits.length === 0) {
-      errors.push("No payload symbols found after pilot removal");
-      return { frame: null, preambleValid, syncValid, errors };
-    }
-
-    // Decode cleaned payload trits to frame
-    let frame: Frame | null = null;
-    try {
-      frame = this.decodeTritsInternal(cleanedTrits);
+      frame = this.decodeTritsInternal(decodedTrits);
       if (!frame) {
         errors.push("Failed to decode payload trits to frame");
       }
