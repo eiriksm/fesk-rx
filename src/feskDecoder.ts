@@ -61,7 +61,8 @@ export class FeskDecoder {
   processAudio(audioSample: AudioSample): Frame | null {
     const toneDetections = this.toneDetector.detectTones(audioSample);
 
-    if (toneDetections.length === 0) {
+    // Continue processing in payload phase even with no detections (for symbol timing)
+    if (toneDetections.length === 0 && this.state.phase !== "payload") {
       return null;
     }
 
@@ -94,12 +95,17 @@ export class FeskDecoder {
   ): Promise<Frame | null> {
     const chunkSize = Math.floor(sampleRate * (chunkSizeMs / 1000));
     let chunkCount = 0;
+    // Processing audio in chunks
 
     for (let i = 0; i < audioData.length; i += chunkSize) {
       const chunkEnd = Math.min(i + chunkSize, audioData.length);
       const chunk = audioData.slice(i, chunkEnd);
 
-      if (chunk.length < chunkSize) break;
+      // Skip empty chunks but allow smaller chunks at the end
+      if (chunk.length === 0) {
+        console.log(`Skipping empty chunk at position ${i}`);
+        continue;
+      }
 
       const timestamp = chunkCount * chunkSizeMs;
       const audioSample: AudioSample = {
@@ -115,12 +121,22 @@ export class FeskDecoder {
       }
 
       chunkCount++;
-      // Safety limit - don't process more than 30 seconds of audio
-      if (chunkCount > 30000 / chunkSizeMs) break;
+      // Safety limit - don't process more than 60 seconds of audio for long messages
+      if (chunkCount > 60000 / chunkSizeMs) {
+        break;
+      }
 
       // Yield to event loop every 10 chunks to keep UI responsive
       if (chunkCount % 10 === 0) {
         await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+
+    // Final decode attempt with whatever trits we have collected
+    if (this.state.tritBuffer && this.state.tritBuffer.length >= 20) {
+      const frame = this.attemptDecode();
+      if (frame && frame.isValid) {
+        return frame;
       }
     }
 
@@ -313,7 +329,6 @@ export class FeskDecoder {
     );
 
     if (preambleResult?.detected) {
-      console.log("Preamble detected! Transitioning to sync phase...");
       this.state.phase = "sync";
       this.state.estimatedSymbolDuration =
         preambleResult.estimatedSymbolDuration;
@@ -346,7 +361,6 @@ export class FeskDecoder {
 
         const syncResult = this.syncDetector.addSymbol(symbolDetection);
         if (syncResult?.detected) {
-          console.log("Sync detected! Transitioning to payload phase...");
           this.state.phase = "payload";
           this.state.tritBuffer = [];
           this.state.tritCount = 0;
@@ -398,7 +412,15 @@ export class FeskDecoder {
         this.lastCommittedSymbolTime = timestamp;
 
         // Try to decode when we have enough data
-        if (this.state.tritBuffer.length >= 20) {
+        // For max 256-byte payload, TX library uses up to 600 trits with headroom
+        // Attempt decode at intervals, more frequently around expected lengths
+        if (
+          this.state.tritBuffer.length >= 20 &&
+          (this.state.tritBuffer.length <= 100 ||
+            this.state.tritBuffer.length % 25 === 0 ||
+            (this.state.tritBuffer.length >= 290 &&
+              this.state.tritBuffer.length <= 300))
+        ) {
           const frame = this.attemptDecode();
           if (frame) {
             this.reset();
@@ -420,7 +442,12 @@ export class FeskDecoder {
             this.lastCommittedSymbolTime = timestamp;
 
             // Try to decode when we have enough data
-            if (this.state.tritBuffer.length >= 20) {
+            // For max 256-byte payload, TX library uses up to 600 trits with headroom
+            if (
+              this.state.tritBuffer.length >= 20 &&
+              (this.state.tritBuffer.length <= 100 ||
+                this.state.tritBuffer.length % 25 === 0)
+            ) {
               const frame = this.attemptDecode();
               if (frame) {
                 this.reset();
@@ -484,9 +511,12 @@ export class FeskDecoder {
 
   private attemptDecode(): Frame | null {
     try {
+      // Apply differential decoding to the trit buffer before converting to bytes
+      const decodedTrits = this.differentialDecode(this.state.tritBuffer);
+
       // Convert trits to bytes using canonical MS-first algorithm
       const decoder = new CanonicalTritDecoder();
-      for (const trit of this.state.tritBuffer) {
+      for (const trit of decodedTrits) {
         decoder.addTrit(trit);
       }
 
