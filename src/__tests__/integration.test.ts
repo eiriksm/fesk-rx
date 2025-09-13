@@ -95,7 +95,7 @@ describe("FESK Integration Tests", () => {
       const frame = await decoder.processAudioComplete(
         audioWithOffset.data,
         audioWithOffset.sampleRate,
-        100, // 100ms chunks
+        100, // 100ms chunks - exact symbol duration
       );
 
       expect(frame).not.toBeNull();
@@ -126,7 +126,6 @@ describe("FESK Integration Tests", () => {
       const frame = await decoder.processAudioComplete(
         audioWithOffset.data,
         audioWithOffset.sampleRate,
-        100, // 100ms chunks
       );
 
       expect(frame).not.toBeNull();
