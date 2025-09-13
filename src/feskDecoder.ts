@@ -123,7 +123,9 @@ export class FeskDecoder {
     // If signal is very weak (max amplitude < 0.5), apply amplification
     if (maxAmplitude < 0.5 && maxAmplitude > 0) {
       const amplificationFactor = Math.min(10, 0.8 / maxAmplitude); // Cap at 10x, target 0.8 max
-      processedData = audioData.map(val => Math.max(-1, Math.min(1, val * amplificationFactor)));
+      processedData = audioData.map((val) =>
+        Math.max(-1, Math.min(1, val * amplificationFactor)),
+      );
     }
 
     // Use configurable adaptive timing parameters

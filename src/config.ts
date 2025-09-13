@@ -18,7 +18,7 @@ export interface FeskConfig {
 export const DEFAULT_CONFIG: FeskConfig = {
   sampleRate: 44100, // Updated to match actual audio files
   symbolDuration: 0.1, // 100ms - discovered from fesk1.wav analysis
-  toneFrequencies: [2793.83, 3520.00, 4698.63], // F7, A7, D8 - harmonically safe frequencies
+  toneFrequencies: [2793.83, 3520.0, 4698.63], // F7, A7, D8 - harmonically safe frequencies
   preambleBits: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0], // 12 bit alternating pattern
   barker13: [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1], // Barker-13 sequence
   pilotSequence: [0, 2], // [f0, f2]
