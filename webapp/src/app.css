@@ -42,6 +42,10 @@
     @apply bg-fesk-red text-white hover:bg-red-700 focus:ring-fesk-red;
   }
 
+  .btn-large {
+    @apply px-6 py-3 text-lg font-semibold;
+  }
+
   .input {
     @apply px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-fesk-blue focus:border-transparent;
   }

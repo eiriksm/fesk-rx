@@ -14,17 +14,13 @@
   let statusMessage = 'Ready to decode FESK audio files or listen for real-time transmissions'
   let progress = 0
 
-  // Microphone state
-  let realtimeMessages = []
-  let isListening = false
-
   function handleAudioFile(event) {
     audioFile = event.detail.file
     audioData = event.detail.audioData
     decodingResults = null
     symbolStream = []
     decodingStatus = 'idle'
-    statusMessage = `Loaded ${audioFile.name} - Click decode to start`
+    statusMessage = `Loaded ${audioFile.name} - automatically decoding...`
   }
 
   function handleDecodeStart() {
@@ -58,38 +54,11 @@
     statusMessage = `Microphone error: ${event.detail.error}`
   }
 
-  function handleListeningStarted() {
-    isListening = true
-    decodingStatus = 'processing'
-    statusMessage = 'Listening for FESK transmissions...'
-    realtimeMessages = []
-  }
-
-  function handleListeningStopped() {
-    isListening = false
-    decodingStatus = 'idle'
-    statusMessage = 'Stopped listening - ready for audio upload or real-time detection'
-  }
-
-  function handleTransmissionDetected(event) {
-    statusMessage = `FESK transmission detected at ${event.detail.startTime.toFixed(1)}ms`
-  }
-
-  function handleRealtimeDecoded(event) {
-    const message = {
-      id: Date.now(),
-      message: event.detail.message,
-      timestamp: event.detail.timestamp,
-      frame: event.detail.frame
-    }
-    realtimeMessages = [message, ...realtimeMessages.slice(0, 9)] // Keep last 10 messages
-    statusMessage = `Decoded: "${event.detail.message}"`
-  }
-
   function handleRecordingComplete(event) {
-    // Treat recorded audio as uploaded file
-    handleAudioFile(event)
-    statusMessage = `Recording completed - Click decode to analyze`
+    // Treat recorded audio as uploaded file for waveform display
+    audioFile = event.detail.file
+    audioData = event.detail.audioData
+    statusMessage = `Recording completed - automatically decoding...`
   }
 </script>
 
@@ -139,11 +108,10 @@
         <!-- Microphone Input -->
         <MicrophoneRecorder
           on:micError={handleMicError}
-          on:listeningStarted={handleListeningStarted}
-          on:listeningStopped={handleListeningStopped}
-          on:transmissionDetected={handleTransmissionDetected}
-          on:realtimeDecoded={handleRealtimeDecoded}
           on:recordingComplete={handleRecordingComplete}
+          on:decodeStart={handleDecodeStart}
+          on:decodeComplete={handleDecodeComplete}
+          on:decodeError={handleDecodeError}
           disabled={decodingStatus === 'processing'}
         />
 
@@ -159,38 +127,6 @@
 
       <!-- Right Column -->
       <div class="space-y-6">
-        <!-- Real-time Messages -->
-        {#if realtimeMessages.length > 0}
-          <div class="card">
-            <div class="card-header">
-              <h2 class="text-lg font-semibold text-gray-900">Real-time Messages</h2>
-            </div>
-            <div class="card-body">
-              <div class="space-y-3 max-h-64 overflow-y-auto">
-                {#each realtimeMessages as message (message.id)}
-                  <div class="bg-green-50 border border-green-200 rounded-lg p-3">
-                    <div class="flex items-center justify-between mb-2">
-                      <span class="text-sm font-medium text-green-800">
-                        📡 FESK Message
-                      </span>
-                      <span class="text-xs text-green-600">
-                        {new Date(message.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                    <div class="font-mono text-lg text-green-900 bg-white px-3 py-2 rounded border">
-                      "{message.message}"
-                    </div>
-                    {#if message.frame}
-                      <div class="text-xs text-green-600 mt-2">
-                        Frame: {message.frame.sequence} symbols
-                      </div>
-                    {/if}
-                  </div>
-                {/each}
-              </div>
-            </div>
-          </div>
-        {/if}
 
         <!-- Symbol Stream -->
         {#if symbolStream.length > 0}

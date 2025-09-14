@@ -6,7 +6,6 @@
   export let disabled = false
 
   let isRecording = false
-  let isListening = false
   let mediaStream = null
   let audioContext = null
   let mediaRecorder = null
@@ -18,11 +17,8 @@
   let currentVolume = 0
   let volumeInterval = null
 
-  // Real-time detection variables
-  let realTimeDecoder = null
-  let processingBuffer = []
-  let bufferSize = 4410 // 100ms at 44.1kHz
-  let lastProcessTime = 0
+  // Auto-decode after recording
+  let autoDecodeEnabled = true
 
   async function requestMicrophoneAccess() {
     try {
@@ -113,6 +109,11 @@
         }
 
         dispatch('recordingComplete', { file, audioData })
+
+        // Automatically start decoding if enabled
+        if (autoDecodeEnabled) {
+          setTimeout(() => startAutoDecode(audioData), 100)
+        }
       } catch (error) {
         console.error('Error processing recording:', error)
         dispatch('micError', { error: `Failed to process recording: ${error.message}` })
@@ -145,91 +146,62 @@
     dispatch('recordingStopped')
   }
 
-  async function startListening() {
-    if (!mediaStream) {
-      const success = await requestMicrophoneAccess()
-      if (!success) return
-    }
+  async function startAutoDecode(audioData) {
+    dispatch('decodeStart')
 
-    // Import FESK decoder for real-time processing
     try {
+      // Import FESK decoder
       const { FeskDecoder } = await import('@fesk/feskDecoder')
-      realTimeDecoder = new FeskDecoder()
-    } catch (error) {
-      console.error('Failed to load FESK decoder:', error)
-      dispatch('micError', { error: 'Failed to load decoder for real-time processing' })
-      return
-    }
+      const decoder = new FeskDecoder()
 
-    isListening = true
-    processingBuffer = []
-    lastProcessTime = Date.now()
-
-    // Set up ScriptProcessorNode for real-time processing
-    const scriptProcessor = audioContext.createScriptProcessor(1024, 1, 1)
-
-    scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-      if (!isListening) return
-
-      const inputBuffer = audioProcessingEvent.inputBuffer
-      const inputData = inputBuffer.getChannelData(0)
-
-      // Add to processing buffer
-      processingBuffer.push(...inputData)
-
-      // Process when we have enough samples (every 100ms worth)
-      if (processingBuffer.length >= bufferSize) {
-        const processChunk = processingBuffer.splice(0, bufferSize)
-        processRealtimeAudio(new Float32Array(processChunk))
-      }
-    }
-
-    microphoneSource.connect(scriptProcessor)
-    scriptProcessor.connect(audioContext.destination)
-
-    startVolumeMonitoring()
-    dispatch('listeningStarted')
-  }
-
-  async function processRealtimeAudio(audioChunk) {
-    if (!realTimeDecoder) return
-
-    try {
       // Try to find transmission start
-      const startTime = realTimeDecoder.findTransmissionStart(audioChunk, audioContext.sampleRate, 0.005) // Lower threshold for real-time
+      const startTime = decoder.findTransmissionStart(audioData.data, audioData.sampleRate)
+
+      let frame = null
+      let symbols = []
 
       if (startTime !== null) {
-        dispatch('transmissionDetected', {
-          startTime,
-          timestamp: Date.now()
-        })
+        // Process audio from detected start
+        const startSeconds = startTime / 1000
+        const offsetData = audioData.data.slice(Math.floor(startSeconds * audioData.sampleRate))
 
-        // Try to decode the chunk
-        const frame = await realTimeDecoder.processAudioComplete(
-          audioChunk,
-          audioContext.sampleRate,
-          50 // Faster processing for real-time
-        )
+        frame = await decoder.processAudioComplete(offsetData, audioData.sampleRate, 100)
 
-        if (frame && frame.isValid) {
-          dispatch('realtimeDecoded', {
-            frame,
-            message: new TextDecoder().decode(frame.payload),
-            timestamp: Date.now()
-          })
+        // Extract symbols for visualization
+        const audioSample = {
+          data: offsetData,
+          sampleRate: audioData.sampleRate,
+          duration: offsetData.length / audioData.sampleRate
         }
+        symbols = decoder.toneDetector.extractSymbols(audioSample, 0)
+      } else {
+        // Try processing entire audio
+        frame = await decoder.processAudioComplete(audioData.data, audioData.sampleRate, 100)
+
+        // Extract symbols from full audio
+        const audioSample = {
+          data: audioData.data,
+          sampleRate: audioData.sampleRate,
+          duration: audioData.data.length / audioData.sampleRate
+        }
+        symbols = decoder.toneDetector.extractSymbols(audioSample, 0)
       }
+
+      const results = {
+        frame,
+        startTime,
+        preambleValid: frame ? true : false,
+        syncValid: frame ? true : false
+      }
+
+      dispatch('decodeComplete', { results, symbols })
+
     } catch (error) {
-      // Silent fail for real-time processing
-      console.debug('Real-time decode attempt failed:', error.message)
+      console.error('Auto-decode error:', error)
+      dispatch('decodeError', { error: error.message })
     }
   }
 
-  function stopListening() {
-    isListening = false
-    stopVolumeMonitoring()
-    dispatch('listeningStopped')
-  }
 
   function cleanup() {
     if (mediaStream) {
@@ -246,7 +218,6 @@
     stopVolumeMonitoring()
 
     isRecording = false
-    isListening = false
   }
 
   onDestroy(cleanup)
@@ -276,62 +247,31 @@
     {/if}
 
     <!-- Recording Controls -->
-    <div class="space-y-3">
-      <!-- Real-time Listening -->
-      <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-        <div>
-          <h3 class="font-medium text-blue-900">Real-time FESK Detection</h3>
-          <p class="text-sm text-blue-700">Listen for FESK transmissions and decode them instantly</p>
-        </div>
-        <button
-          class="btn {isListening ? 'btn-danger' : 'btn-primary'}"
-          on:click={isListening ? stopListening : startListening}
-          disabled={disabled || isRecording}
-        >
-          {#if isListening}
-            🔴 Stop Listening
-          {:else}
-            🎧 Start Listening
-          {/if}
-        </button>
-      </div>
-
-      <!-- Recording -->
-      <div class="flex items-center justify-between p-3 bg-emerald-50 rounded-lg">
-        <div>
-          <h3 class="font-medium text-emerald-900">Record Audio</h3>
-          <p class="text-sm text-emerald-700">
-            {#if isRecording}
-              Recording... {recordingTime.toFixed(1)}s
-            {:else}
-              Capture audio for offline processing
-            {/if}
-          </p>
-        </div>
-        <button
-          class="btn {isRecording ? 'btn-danger' : 'btn-success'}"
-          on:click={isRecording ? stopRecording : startRecording}
-          disabled={disabled || isListening}
-        >
+    <div class="flex items-center justify-between p-4 bg-emerald-50 rounded-lg">
+      <div>
+        <h3 class="font-medium text-emerald-900">Record & Decode FESK Audio</h3>
+        <p class="text-sm text-emerald-700">
           {#if isRecording}
-            ⏹️ Stop Recording
+            Recording... {recordingTime.toFixed(1)}s - Audio will be automatically decoded when stopped
           {:else}
-            🎙️ Start Recording
+            Click to start recording. Stop to automatically decode the recorded audio
           {/if}
-        </button>
+        </p>
       </div>
+      <button
+        class="btn {isRecording ? 'btn-danger' : 'btn-success'} btn-large"
+        on:click={isRecording ? stopRecording : startRecording}
+        disabled={disabled}
+      >
+        {#if isRecording}
+          ⏹️ Stop & Decode
+        {:else}
+          🎙️ Start Recording
+        {/if}
+      </button>
     </div>
 
     <!-- Status Messages -->
-    {#if isListening}
-      <div class="bg-blue-100 border border-blue-300 rounded-lg p-3">
-        <div class="flex items-center space-x-2">
-          <div class="animate-pulse w-2 h-2 bg-blue-500 rounded-full"></div>
-          <span class="text-blue-800 text-sm font-medium">Listening for FESK transmissions...</span>
-        </div>
-      </div>
-    {/if}
-
     {#if isRecording}
       <div class="bg-red-100 border border-red-300 rounded-lg p-3">
         <div class="flex items-center space-x-2">
@@ -343,9 +283,9 @@
 
     <!-- Instructions -->
     <div class="text-sm text-gray-600 space-y-2">
-      <p><strong>Real-time Mode:</strong> Automatically detects and decodes FESK transmissions as they arrive.</p>
-      <p><strong>Recording Mode:</strong> Captures audio to file for detailed offline analysis.</p>
-      <p class="text-xs text-gray-500">Note: Both modes require microphone permission from your browser.</p>
+      <p><strong>How to use:</strong> Click "Start Recording", play or speak your FESK audio, then click "Stop & Decode".</p>
+      <p><strong>Auto-decode:</strong> Audio will be automatically processed and decoded when recording stops.</p>
+      <p class="text-xs text-gray-500">Note: Requires microphone permission from your browser.</p>
     </div>
   </div>
 </div>
