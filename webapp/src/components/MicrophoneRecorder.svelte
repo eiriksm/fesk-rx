@@ -73,10 +73,9 @@
   }
 
   async function startRecording() {
-    if (!mediaStream) {
-      const success = await requestMicrophoneAccess()
-      if (!success) return
-    }
+    // Always request fresh microphone access for recording
+    const success = await requestMicrophoneAccess()
+    if (!success) return
 
     recordedChunks = []
     recordingTime = 0
@@ -142,6 +141,22 @@
     }
 
     stopVolumeMonitoring()
+
+    // Stop the microphone stream
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => {
+        track.stop()
+        console.log('Stopped microphone track:', track.label)
+      })
+      mediaStream = null
+    }
+
+    // Close audio context
+    if (audioContext && audioContext.state !== 'closed') {
+      audioContext.close()
+      audioContext = null
+    }
+
     isRecording = false
     dispatch('recordingStopped')
   }
