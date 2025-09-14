@@ -88,22 +88,128 @@ export class FeskDecoder {
    * @param chunkSizeMs Size of processing chunks in milliseconds (default: 100ms)
    * @returns Promise that resolves with decoded frame or null if no valid frame found
    */
-  async processAudioComplete(
+  async processAudioCompleteBasic(
     audioData: Float32Array,
     sampleRate: number,
     chunkSizeMs: number = 100,
   ): Promise<Frame | null> {
-    const chunkSize = Math.floor(sampleRate * (chunkSizeMs / 1000));
-    let chunkCount = 0;
-    // Processing audio in chunks
+    // First try the standard incremental approach
+    const standardResult = await this.tryProcessAudioWithOffset(
+      audioData,
+      sampleRate,
+      chunkSizeMs,
+      0,
+    );
+    if (standardResult) {
+      return standardResult;
+    }
 
-    for (let i = 0; i < audioData.length; i += chunkSize) {
+    // If standard approach fails, try symbol extraction approach (like the working manual method)
+    return await this.trySymbolExtractionApproach(audioData, sampleRate);
+  }
+
+  private async trySymbolExtractionApproach(
+    audioData: Float32Array,
+    sampleRate: number,
+  ): Promise<Frame | null> {
+    // Check signal strength and apply amplification if needed
+    let processedData = audioData;
+    let maxAmplitude = 0;
+    for (let i = 0; i < audioData.length; i++) {
+      const abs = Math.abs(audioData[i]);
+      if (abs > maxAmplitude) maxAmplitude = abs;
+    }
+
+    // If signal is very weak (max amplitude < 0.5), apply amplification
+    if (maxAmplitude < 0.5 && maxAmplitude > 0) {
+      const amplificationFactor = Math.min(10, 0.8 / maxAmplitude); // Cap at 10x, target 0.8 max
+      processedData = audioData.map((val) =>
+        Math.max(-1, Math.min(1, val * amplificationFactor)),
+      );
+    }
+
+    // Use configurable adaptive timing parameters
+    const adaptiveTiming = this.config.adaptiveTiming;
+    const symbolDurationsToTest = adaptiveTiming?.symbolDurationsMs || [100];
+    const offsetsToTest = adaptiveTiming?.timingOffsetsMs || [0];
+
+    for (const symbolDurationMs of symbolDurationsToTest) {
+      const symbolSamples = Math.floor(sampleRate * (symbolDurationMs / 1000));
+
+      // For each symbol duration, try different timing offsets
+
+      for (const offsetMs of offsetsToTest) {
+        const offsetSamples = Math.floor((offsetMs / 1000) * sampleRate);
+        const extractedSymbols = [];
+        const maxSymbols = 350; // Process enough symbols for extremely long messages
+
+        for (let i = 0; i < maxSymbols; i++) {
+          const start = i * symbolSamples + offsetSamples;
+          const end = Math.min(start + symbolSamples, processedData.length);
+
+          if (start >= processedData.length || start < 0) break;
+
+          const symbolChunk = processedData.slice(start, end);
+
+          const audioSample = {
+            data: symbolChunk,
+            timestamp: i * symbolDurationMs,
+            sampleRate: sampleRate,
+          };
+
+          const detections = this.toneDetector.detectTones(audioSample);
+
+          if (detections.length > 0) {
+            // Take the detection with highest confidence
+            const bestDetection = detections.reduce((best, current) =>
+              current.confidence > best.confidence ? current : best,
+            );
+
+            // Map frequency to symbol
+            const symbol = this.toneToSymbol(bestDetection.frequency);
+            if (symbol !== null) {
+              extractedSymbols.push(symbol);
+            }
+          } else {
+            // No detection - could be end of transmission
+            break;
+          }
+        }
+
+        // If we got enough symbols, try to decode them
+        if (extractedSymbols.length >= 25) {
+          const decodeResult =
+            this.decodeCompleteTransmission(extractedSymbols);
+
+          if (decodeResult.frame && decodeResult.frame.isValid) {
+            return decodeResult.frame;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private async tryProcessAudioWithOffset(
+    audioData: Float32Array,
+    sampleRate: number,
+    chunkSizeMs: number,
+    offsetMs: number,
+  ): Promise<Frame | null> {
+    const chunkSize = Math.floor(sampleRate * (chunkSizeMs / 1000));
+    const offsetSamples = Math.floor((offsetMs / 1000) * sampleRate);
+    let chunkCount = 0;
+
+    // Reset decoder state for this attempt
+    this.reset();
+
+    for (let i = offsetSamples; i < audioData.length; i += chunkSize) {
       const chunkEnd = Math.min(i + chunkSize, audioData.length);
       const chunk = audioData.slice(i, chunkEnd);
 
       // Skip empty chunks but allow smaller chunks at the end
       if (chunk.length === 0) {
-        console.log(`Skipping empty chunk at position ${i}`);
         continue;
       }
 
@@ -176,9 +282,10 @@ export class FeskDecoder {
     sampleRate: number,
     energyThreshold: number = 0.01,
   ): number | null {
-    const windowSize = Math.floor(sampleRate * 0.01); // 10ms windows
+    const windowSize = Math.floor(sampleRate * 0.025); // 25ms windows for better stability
+    const stepSize = Math.floor(sampleRate * 0.005); // 5ms steps
 
-    for (let i = 0; i < audioData.length - windowSize; i += windowSize) {
+    for (let i = 0; i < audioData.length - windowSize; i += stepSize) {
       const chunk = audioData.slice(i, i + windowSize);
 
       // Calculate RMS energy
@@ -188,9 +295,34 @@ export class FeskDecoder {
       }
       energy = Math.sqrt(energy / chunk.length);
 
-      // If energy exceeds threshold, this is likely the start
+      // If energy exceeds threshold, this is the start
       if (energy > energyThreshold) {
-        return (i / sampleRate) * 1000;
+        // Found signal, now back up to find the actual onset
+        // Look backward for the point where energy first rises significantly
+        const backtrackSteps = Math.floor((0.1 * sampleRate) / stepSize); // Look back ~100ms
+        let bestStart = i;
+
+        for (
+          let j = Math.max(0, i - backtrackSteps * stepSize);
+          j <= i;
+          j += stepSize
+        ) {
+          const testChunk = audioData.slice(j, j + windowSize);
+          let testEnergy = 0;
+          for (const sample of testChunk) {
+            testEnergy += sample * sample;
+          }
+          testEnergy = Math.sqrt(testEnergy / testChunk.length);
+
+          // Look for the first significant rise above noise floor
+          if (testEnergy > energyThreshold * 0.3) {
+            // 30% of threshold as noise floor
+            bestStart = j;
+            break;
+          }
+        }
+
+        return (bestStart / sampleRate) * 1000;
       }
     }
 
@@ -829,5 +961,367 @@ export class FeskDecoder {
     }
 
     return { frame, preambleValid, syncValid, errors };
+  }
+
+  /**
+   * Attempt to synchronize symbol timing based on preamble pattern
+   * @param symbols Raw symbols to analyze
+   * @param searchWindow Number of samples to search for timing adjustment
+   * @returns Object with timing offset and confidence score
+   */
+  optimizeSymbolTiming(
+    symbols: number[],
+    searchWindow: number = 10,
+  ): { offset: number; confidence: number; syncedSymbols: number[] } {
+    const expectedPreamblePattern = [2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0]; // Raw symbols
+    const expectedSyncPattern = [2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0, 2]; // Raw symbols after preamble
+
+    let bestOffset = 0;
+    let bestConfidence = 0;
+    let bestSymbols: number[] = [];
+
+    // Try different timing offsets
+    for (let offset = -searchWindow; offset <= searchWindow; offset++) {
+      const adjustedSymbols = this.applyTimingOffset(symbols, offset);
+
+      if (adjustedSymbols.length < 25) continue; // Need at least preamble + sync
+
+      // Check preamble match
+      const preambleMatch = this.calculatePatternMatch(
+        adjustedSymbols.slice(0, 12),
+        expectedPreamblePattern,
+      );
+
+      // Check sync match
+      const syncMatch = this.calculatePatternMatch(
+        adjustedSymbols.slice(12, 25),
+        expectedSyncPattern,
+      );
+
+      const confidence = (preambleMatch + syncMatch) / 2;
+
+      if (confidence > bestConfidence) {
+        bestConfidence = confidence;
+        bestOffset = offset;
+        bestSymbols = adjustedSymbols;
+      }
+    }
+
+    return {
+      offset: bestOffset,
+      confidence: bestConfidence,
+      syncedSymbols: bestSymbols,
+    };
+  }
+
+  /**
+   * Apply timing offset to symbols by interpolating or decimating
+   */
+  private applyTimingOffset(symbols: number[], offset: number): number[] {
+    if (offset === 0) return [...symbols];
+
+    if (offset > 0) {
+      // Positive offset: skip some symbols at start
+      return symbols.slice(offset);
+    } else {
+      // Negative offset: duplicate some symbols at start (simple approach)
+      const duplicateCount = Math.abs(offset);
+      return [...Array(duplicateCount).fill(symbols[0]), ...symbols];
+    }
+  }
+
+  /**
+   * Calculate pattern match score between observed and expected symbols
+   */
+  private calculatePatternMatch(
+    observed: number[],
+    expected: number[],
+  ): number {
+    if (observed.length !== expected.length) return 0;
+
+    const matches = observed.filter((sym, i) => sym === expected[i]).length;
+    return matches / expected.length;
+  }
+
+  /**
+   * Process audio with automatic chunk size optimization
+   * Tries different chunk sizes to find the best decoding result
+   * Chunk sizes are based on symbol duration for better alignment
+   */
+  async processAudioComplete(
+    audioData: Float32Array,
+    sampleRate: number,
+    chunkSizeOrSizes: number | number[] | null = null,
+    enableTimingSync: boolean = true,
+  ): Promise<Frame | null> {
+    // Handle backward compatibility: if a single number is passed, use the basic method
+    if (typeof chunkSizeOrSizes === "number") {
+      return await this.processAudioCompleteBasic(
+        audioData,
+        sampleRate,
+        chunkSizeOrSizes,
+      );
+    }
+
+    // Use symbol-duration-aligned chunk sizes if none provided
+    const symbolDurationMs = this.config.symbolDuration * 1000;
+    const defaultChunkSizes = [
+      symbolDurationMs * 0.5, // 50ms - half symbol
+      symbolDurationMs * 0.75, // 75ms - 3/4 symbol
+      symbolDurationMs, // 100ms - exact symbol duration (optimal)
+      symbolDurationMs * 1.5, // 150ms - 1.5 symbols
+      symbolDurationMs * 2, // 200ms - 2 symbols
+    ];
+
+    const actualChunkSizes = chunkSizeOrSizes || defaultChunkSizes;
+    const _bestFrame: Frame | null = null;
+    const _bestConfidence = 0;
+
+    for (const chunkSize of actualChunkSizes) {
+      // Reset decoder state for each attempt
+      this.reset();
+
+      try {
+        const frame = await this.processAudioCompleteBasic(
+          audioData,
+          sampleRate,
+          chunkSize,
+        );
+
+        if (frame && frame.isValid) {
+          // For now, return the first valid frame found
+          // Could be enhanced with confidence scoring
+          return frame;
+        }
+      } catch (error) {
+        // Continue with next chunk size if this one fails
+        console.warn(`Chunk size ${chunkSize}ms failed:`, error);
+      }
+    }
+
+    // If standard processing failed, try with symbol timing optimization
+    if (enableTimingSync && !_bestFrame) {
+      try {
+        return await this.processAudioWithTimingSync(
+          audioData,
+          sampleRate,
+          actualChunkSizes,
+        );
+      } catch (error) {
+        console.warn("Timing sync processing failed:", error);
+      }
+    }
+
+    return _bestFrame;
+  }
+
+  /**
+   * Find the preamble pattern in the symbol stream with flexible matching
+   * @param symbols Symbol stream to search
+   * @returns Index of preamble start, or -1 if not found
+   */
+  findPreambleInSymbols(symbols: number[]): number {
+    const expectedPreamblePattern = [2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0];
+
+    for (let i = 0; i <= symbols.length - expectedPreamblePattern.length; i++) {
+      const match = this.calculatePatternMatch(
+        symbols.slice(i, i + expectedPreamblePattern.length),
+        expectedPreamblePattern,
+      );
+
+      if (match >= 0.75) {
+        // 75% match threshold (9/12 symbols correct)
+        return i;
+      }
+    }
+
+    // If exact pattern not found, look for alternating 2,0 pattern at the start
+    if (symbols.length >= 8) {
+      const alternatingMatches = [];
+      for (let i = 0; i < Math.min(12, symbols.length); i += 2) {
+        const hasCorrectPair =
+          i + 1 < symbols.length && symbols[i] === 2 && symbols[i + 1] === 0;
+        alternatingMatches.push(hasCorrectPair);
+      }
+
+      // If at least 4 out of 6 pairs are correct (67% match)
+      const correctPairs = alternatingMatches.filter(Boolean).length;
+      if (correctPairs >= 4 && symbols[0] === 2) {
+        return 0;
+      }
+    }
+
+    return -1;
+  }
+
+  /**
+   * Attempt to correct common symbol errors in preamble and sync
+   * @param symbols Raw symbols to correct
+   * @returns Corrected symbols if pattern is recognizable, otherwise null
+   */
+  attemptPatternCorrection(symbols: number[]): number[] | null {
+    if (symbols.length < 25) return null;
+
+    const expectedPreamble = [2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0];
+    const expectedSync = [2, 2, 2, 2, 2, 0, 0, 2, 2, 0, 2, 0, 2];
+
+    const corrected = [...symbols];
+    let correctionsMade = 0;
+
+    // Check if this looks like a preamble (alternating pattern with some errors)
+    let alternatingScore = 0;
+    for (let i = 0; i < Math.min(12, symbols.length); i += 2) {
+      if (i + 1 < symbols.length && symbols[i] === 2 && symbols[i + 1] === 0) {
+        alternatingScore++;
+      }
+    }
+
+    // If we have at least 4 out of 6 alternating pairs, attempt correction
+    if (alternatingScore >= 4) {
+      // Correct preamble
+      for (let i = 0; i < 12 && i < symbols.length; i++) {
+        if (symbols[i] !== expectedPreamble[i]) {
+          corrected[i] = expectedPreamble[i];
+          correctionsMade++;
+        }
+      }
+
+      // Check sync pattern similarity
+      if (symbols.length >= 25) {
+        const syncSlice = symbols.slice(12, 25);
+        const syncMatches = syncSlice.filter(
+          (sym, i) => sym === expectedSync[i],
+        ).length;
+
+        // If sync is at least 60% similar, correct it (lowered threshold)
+        if (syncMatches >= 8) {
+          for (let i = 0; i < 13; i++) {
+            if (corrected[12 + i] !== expectedSync[i]) {
+              corrected[12 + i] = expectedSync[i];
+              correctionsMade++;
+            }
+          }
+        }
+      }
+    }
+
+    // Return corrected symbols if we made corrections and they seem reasonable
+    if (correctionsMade > 0 && correctionsMade <= 10) {
+      return corrected;
+    }
+
+    return null;
+  }
+
+  /**
+   * Process audio with symbol timing synchronization
+   */
+  private async processAudioWithTimingSync(
+    audioData: Float32Array,
+    sampleRate: number,
+    chunkSizes: number[],
+  ): Promise<Frame | null> {
+    // Extract symbols using the most conservative chunk size
+    const _conservativeChunkSize = Math.min(...chunkSizes);
+
+    // Try extracting symbols from different start positions
+    const windowSizeSeconds = 0.2; // 200ms search window (increased)
+    const stepSeconds = 0.01; // 10ms steps (more granular)
+
+    for (
+      let startOffset = 0;
+      startOffset < windowSizeSeconds;
+      startOffset += stepSeconds
+    ) {
+      try {
+        const audioSample = {
+          data: audioData,
+          sampleRate,
+          timestamp: startOffset * 1000,
+        };
+
+        const rawSymbols = this.toneDetector.extractSymbols(
+          audioSample,
+          startOffset,
+        );
+
+        if (rawSymbols.length < 50) continue; // Need more symbols for robust detection
+
+        // First try to find preamble in the stream
+        const preambleIndex = this.findPreambleInSymbols(rawSymbols);
+
+        if (preambleIndex >= 0) {
+          // Extract transmission starting from preamble
+          const transmissionSymbols = rawSymbols.slice(preambleIndex);
+
+          if (transmissionSymbols.length >= 25) {
+            // Try to decode directly
+            const decodeResult =
+              this.decodeCompleteTransmission(transmissionSymbols);
+
+            if (decodeResult.frame && decodeResult.frame.isValid) {
+              return decodeResult.frame;
+            }
+
+            // Try pattern correction
+            const correctedSymbols =
+              this.attemptPatternCorrection(transmissionSymbols);
+            if (correctedSymbols) {
+              const correctedResult =
+                this.decodeCompleteTransmission(correctedSymbols);
+              if (correctedResult.frame && correctedResult.frame.isValid) {
+                return correctedResult.frame;
+              }
+            }
+
+            // If direct decode fails, try timing optimization
+            const timingResult = this.optimizeSymbolTiming(transmissionSymbols);
+
+            if (timingResult.confidence > 0.5) {
+              // Lower threshold since we found preamble
+              const timingSyncResult = this.decodeCompleteTransmission(
+                timingResult.syncedSymbols,
+              );
+
+              if (timingSyncResult.frame && timingSyncResult.frame.isValid) {
+                return timingSyncResult.frame;
+              }
+
+              // Try pattern correction on timing-synced symbols
+              const correctedTimingSymbols = this.attemptPatternCorrection(
+                timingResult.syncedSymbols,
+              );
+              if (correctedTimingSymbols) {
+                const finalResult = this.decodeCompleteTransmission(
+                  correctedTimingSymbols,
+                );
+                if (finalResult.frame && finalResult.frame.isValid) {
+                  return finalResult.frame;
+                }
+              }
+            }
+          }
+        } else {
+          // Apply timing synchronization to entire stream
+          const timingResult = this.optimizeSymbolTiming(rawSymbols);
+
+          if (timingResult.confidence > 0.7) {
+            // Higher threshold when no clear preamble
+            const decodeResult = this.decodeCompleteTransmission(
+              timingResult.syncedSymbols,
+            );
+
+            if (decodeResult.frame && decodeResult.frame.isValid) {
+              return decodeResult.frame;
+            }
+          }
+        }
+      } catch {
+        // Continue with next start offset
+        continue;
+      }
+    }
+
+    return null;
   }
 }
