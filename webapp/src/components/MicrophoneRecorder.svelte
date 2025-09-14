@@ -97,15 +97,21 @@
       const file = new File([blob], `recording-${Date.now()}.webm`, { type: 'audio/webm' })
 
       try {
+        // Create a new audio context for processing since we might have closed the old one
+        const processingContext = new (window.AudioContext || window.webkitAudioContext)()
+
         // Convert to audio buffer for processing
         const arrayBuffer = await blob.arrayBuffer()
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+        const audioBuffer = await processingContext.decodeAudioData(arrayBuffer)
 
         const audioData = {
           data: audioBuffer.getChannelData(0),
           sampleRate: audioBuffer.sampleRate,
           duration: audioBuffer.duration
         }
+
+        // Close the processing context
+        processingContext.close()
 
         dispatch('recordingComplete', { file, audioData })
 
@@ -151,11 +157,14 @@
       mediaStream = null
     }
 
-    // Close audio context
-    if (audioContext && audioContext.state !== 'closed') {
-      audioContext.close()
-      audioContext = null
-    }
+    // Don't close audio context immediately - let the onstop callback finish first
+    // We'll close it after a delay or let the processing context handle it
+    setTimeout(() => {
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close()
+        audioContext = null
+      }
+    }, 1000)
 
     isRecording = false
     dispatch('recordingStopped')
