@@ -98,8 +98,16 @@ export class ToneDetector {
 
     // Get frequency strengths using appropriate method
     const strengths = useParametricGoertzel
-      ? Goertzel.getFrequencyStrengthsParametric(windowedData, this.config.toneFrequencies, sampleRate)
-      : Goertzel.getFrequencyStrengths(windowedData, this.config.toneFrequencies, sampleRate);
+      ? Goertzel.getFrequencyStrengthsParametric(
+          windowedData,
+          this.config.toneFrequencies,
+          sampleRate,
+        )
+      : Goertzel.getFrequencyStrengths(
+          windowedData,
+          this.config.toneFrequencies,
+          sampleRate,
+        );
 
     // Find the tone with maximum energy
     const maxIndex = strengths.indexOf(Math.max(...strengths));
@@ -139,7 +147,11 @@ export class ToneDetector {
     // Process audio in overlapping windows
     for (let i = 0; i < data.length - this.windowSize; i += this.hopSize) {
       const window = data.slice(i, i + this.windowSize);
-      const detection = this.processWindowAdvanced(window, audioSample.sampleRate, options);
+      const detection = this.processWindowAdvanced(
+        window,
+        audioSample.sampleRate,
+        options,
+      );
       if (detection) {
         detections.push(detection);
       }
@@ -230,12 +242,16 @@ export class ToneDetector {
     const analysisWindowSamples = this.windowSize;
 
     // Advanced timing search parameters
-    const timingSearchWindow = options.timingSearchWindow || Math.floor(symbolDurationSamples * 0.1); // 10% search window
+    const timingSearchWindow =
+      options.timingSearchWindow || Math.floor(symbolDurationSamples * 0.1); // 10% search window
     const useParametricGoertzel = options.useParametricGoertzel || false;
     const useHannWindow = options.useHannWindow || false;
 
     // First, do coarse timing estimation by looking for preamble correlation
-    let bestStartOffset = this.findOptimalStartOffset(audioSample, timingSearchWindow);
+    const bestStartOffset = this.findOptimalStartOffset(
+      audioSample,
+      timingSearchWindow,
+    );
     const startOffsetSamples = Math.floor(bestStartOffset * sampleRate);
 
     let symbolIndex = 0;
@@ -248,15 +264,24 @@ export class ToneDetector {
         startOffsetSamples + symbolIndex * symbolDurationSamples;
 
       // Fine timing search around expected symbol center
-      let bestTiming = symbolStartSample + Math.floor(symbolDurationSamples / 2);
+      let bestTiming =
+        symbolStartSample + Math.floor(symbolDurationSamples / 2);
       let bestStrength = 0;
       let bestTone = 0;
 
       const searchStart = Math.max(0, bestTiming - timingSearchWindow);
-      const searchEnd = Math.min(data.length - analysisWindowSamples, bestTiming + timingSearchWindow);
+      const searchEnd = Math.min(
+        data.length - analysisWindowSamples,
+        bestTiming + timingSearchWindow,
+      );
 
-      for (let searchPos = searchStart; searchPos <= searchEnd; searchPos += Math.max(1, Math.floor(timingSearchWindow / 10))) {
-        const windowStartSample = searchPos - Math.floor(analysisWindowSamples / 2);
+      for (
+        let searchPos = searchStart;
+        searchPos <= searchEnd;
+        searchPos += Math.max(1, Math.floor(timingSearchWindow / 10))
+      ) {
+        const windowStartSample =
+          searchPos - Math.floor(analysisWindowSamples / 2);
         const windowEndSample = windowStartSample + analysisWindowSamples;
 
         if (windowStartSample < 0 || windowEndSample >= data.length) continue;
@@ -269,8 +294,16 @@ export class ToneDetector {
           : segmentData;
 
         const result = useParametricGoertzel
-          ? Goertzel.detectStrongestToneParametric(processedSegment as Float32Array, this.config.toneFrequencies, sampleRate)
-          : Goertzel.detectStrongestTone(processedSegment as Float32Array, this.config.toneFrequencies, sampleRate);
+          ? Goertzel.detectStrongestToneParametric(
+              processedSegment as Float32Array,
+              this.config.toneFrequencies,
+              sampleRate,
+            )
+          : Goertzel.detectStrongestTone(
+              processedSegment as Float32Array,
+              this.config.toneFrequencies,
+              sampleRate,
+            );
 
         if (result.strength > bestStrength) {
           bestStrength = result.strength;
@@ -292,12 +325,17 @@ export class ToneDetector {
   /**
    * Find optimal start offset by correlating with expected preamble pattern
    */
-  private findOptimalStartOffset(audioSample: AudioSample, searchWindow: number): number {
+  private findOptimalStartOffset(
+    audioSample: AudioSample,
+    searchWindow: number,
+  ): number {
     // Look for alternating 2-0 preamble pattern
     const expectedPreamble = [2, 0, 2, 0, 2, 0, 2, 0];
     const data = audioSample.data;
     const sampleRate = audioSample.sampleRate;
-    const symbolDurationSamples = Math.floor(this.config.symbolDuration * sampleRate);
+    const symbolDurationSamples = Math.floor(
+      this.config.symbolDuration * sampleRate,
+    );
 
     let bestOffset = 0;
     let bestScore = 0;
@@ -306,19 +344,28 @@ export class ToneDetector {
     const maxSearchSeconds = 3;
     const searchSamples = Math.min(data.length, maxSearchSeconds * sampleRate);
 
-    for (let offset = 0; offset < searchSamples - expectedPreamble.length * symbolDurationSamples; offset += searchWindow) {
+    for (
+      let offset = 0;
+      offset < searchSamples - expectedPreamble.length * symbolDurationSamples;
+      offset += searchWindow
+    ) {
       let score = 0;
 
       for (let i = 0; i < expectedPreamble.length; i++) {
         const symbolStart = offset + i * symbolDurationSamples;
-        const symbolCenter = symbolStart + Math.floor(symbolDurationSamples / 2);
+        const symbolCenter =
+          symbolStart + Math.floor(symbolDurationSamples / 2);
         const windowStart = symbolCenter - Math.floor(this.windowSize / 2);
         const windowEnd = windowStart + this.windowSize;
 
         if (windowStart < 0 || windowEnd >= data.length) continue;
 
         const segment = data.slice(windowStart, windowEnd);
-        const result = Goertzel.detectStrongestTone(segment, this.config.toneFrequencies, sampleRate);
+        const result = Goertzel.detectStrongestTone(
+          segment,
+          this.config.toneFrequencies,
+          sampleRate,
+        );
 
         if (result.toneIndex === expectedPreamble[i]) {
           score += result.strength;
