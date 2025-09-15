@@ -8,6 +8,7 @@
 export class Goertzel {
   /**
    * Calculate the magnitude/strength of a specific frequency in an audio segment
+   * Uses binned approach (rounds to nearest FFT bin) - compatible with existing code
    *
    * @param segment - Audio samples to analyze
    * @param frequency - Target frequency to detect (in Hz)
@@ -40,7 +41,42 @@ export class Goertzel {
   }
 
   /**
+   * Calculate frequency strength using parametric Goertzel (exact frequency)
+   * Fixes Goertzel/FFT binning mismatch by using exact frequency instead of rounding to bins
+   *
+   * @param segment - Audio samples to analyze
+   * @param frequency - Target frequency to detect (in Hz)
+   * @param sampleRate - Sample rate of the audio (in Hz)
+   * @returns Normalized magnitude of the frequency component
+   */
+  static getFrequencyStrengthParametric(
+    segment: Float32Array,
+    frequency: number,
+    sampleRate: number,
+  ): number {
+    const N = segment.length;
+    // Parametric approach: use exact frequency (ω = 2πf/fs)
+    const omega = (2 * Math.PI * frequency) / sampleRate;
+    const cosine = Math.cos(omega);
+
+    let q1 = 0,
+      q2 = 0;
+
+    for (let i = 0; i < N; i++) {
+      const q0 = 2 * cosine * q1 - q2 + segment[i];
+      q2 = q1;
+      q1 = q0;
+    }
+
+    const real = q1 - q2 * cosine;
+    const imag = q2 * Math.sin(omega);
+
+    return Math.sqrt(real * real + imag * imag) / N;
+  }
+
+  /**
    * Detect which of multiple target frequencies is strongest in the signal
+   * Uses binned approach - compatible with existing code
    *
    * @param segment - Audio samples to analyze
    * @param frequencies - Array of target frequencies to compare
@@ -71,7 +107,40 @@ export class Goertzel {
   }
 
   /**
+   * Detect strongest tone using parametric Goertzel (exact frequency)
+   * Better for precise frequency matching in problematic recordings
+   *
+   * @param segment - Audio samples to analyze
+   * @param frequencies - Array of target frequencies to compare
+   * @param sampleRate - Sample rate of the audio (in Hz)
+   * @returns Object containing the detected tone index and its strength
+   */
+  static detectStrongestToneParametric(
+    segment: Float32Array,
+    frequencies: number[],
+    sampleRate: number,
+  ): { toneIndex: number; strength: number } {
+    let bestTone = 0;
+    let bestStrength = 0;
+
+    for (let i = 0; i < frequencies.length; i++) {
+      const strength = this.getFrequencyStrengthParametric(
+        segment,
+        frequencies[i],
+        sampleRate,
+      );
+      if (strength > bestStrength) {
+        bestStrength = strength;
+        bestTone = i;
+      }
+    }
+
+    return { toneIndex: bestTone, strength: bestStrength };
+  }
+
+  /**
    * Get the strength of all target frequencies in the signal
+   * Uses binned approach - compatible with existing code
    *
    * @param segment - Audio samples to analyze
    * @param frequencies - Array of target frequencies to analyze
@@ -85,6 +154,25 @@ export class Goertzel {
   ): number[] {
     return frequencies.map((freq) =>
       this.getFrequencyStrength(segment, freq, sampleRate),
+    );
+  }
+
+  /**
+   * Get frequency strengths using parametric Goertzel (exact frequency)
+   * Better for precise frequency matching in problematic recordings
+   *
+   * @param segment - Audio samples to analyze
+   * @param frequencies - Array of target frequencies to analyze
+   * @param sampleRate - Sample rate of the audio (in Hz)
+   * @returns Array of frequency strengths in the same order as input frequencies
+   */
+  static getFrequencyStrengthsParametric(
+    segment: Float32Array,
+    frequencies: number[],
+    sampleRate: number,
+  ): number[] {
+    return frequencies.map((freq) =>
+      this.getFrequencyStrengthParametric(segment, freq, sampleRate),
     );
   }
 }
