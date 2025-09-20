@@ -6,12 +6,19 @@ export class PreambleDetector {
   private symbolBuffer: SymbolDetection[];
   private lastSymbolTime: number;
   private estimatedSymbolDuration: number;
+  private symbolDuration: number;
 
   constructor(config: FeskConfig) {
     this.config = config;
     this.symbolBuffer = [];
     this.lastSymbolTime = 0;
     this.estimatedSymbolDuration = config.symbolDuration;
+    this.symbolDuration = config.symbolDuration;
+  }
+
+  setSymbolDuration(symbolDuration: number): void {
+    this.symbolDuration = symbolDuration;
+    this.estimatedSymbolDuration = symbolDuration;
   }
 
   processToneDetections(
@@ -52,7 +59,7 @@ export class PreambleDetector {
   private addSymbol(symbol: SymbolDetection): void {
     // Remove old symbols (keep only recent ones for timing estimation)
     // Use a much longer time window since our chunks are 100ms apart
-    const maxAge = this.config.symbolDuration * 1000 * 20; // Convert to ms, keep last 20 symbol periods
+    const maxAge = this.symbolDuration * 1000 * 20; // Convert to ms, keep last 20 symbol periods
     this.symbolBuffer = this.symbolBuffer.filter(
       (s) => symbol.timestamp - s.timestamp < maxAge,
     );
@@ -75,7 +82,7 @@ export class PreambleDetector {
         this.symbolBuffer[i].timestamp - this.symbolBuffer[i - 1].timestamp;
 
       // More flexible timing tolerance - allow 25% to 200% of expected duration
-      const expectedMs = this.config.symbolDuration * 1000;
+      const expectedMs = this.symbolDuration * 1000;
       if (interval > expectedMs * 0.25 && interval < expectedMs * 2.0) {
         intervals.push(interval);
       }
@@ -163,7 +170,7 @@ export class PreambleDetector {
   reset(): void {
     this.symbolBuffer = [];
     this.lastSymbolTime = 0;
-    this.estimatedSymbolDuration = this.config.symbolDuration;
+    this.estimatedSymbolDuration = this.symbolDuration;
   }
 }
 

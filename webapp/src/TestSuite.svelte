@@ -28,7 +28,21 @@
       description: 'Hardware recording (44.1kHz)',
       expectedMessage: 'test',
       expectedStartTime: 600,
-      tolerance: 300
+      tolerance: 300,
+      symbolExtractorOptions: {
+        frequencySets: [
+          {
+            name: 'hardware',
+            tones: [1200, 1600, 2000]
+          }
+        ],
+        symbolDurations: [0.098, 0.1, 0.102],
+        startTimeRange: { start: 0.3, end: 2.5, step: 0.002 },
+        symbolsToExtract: 90,
+        windowFraction: 0.6,
+        minConfidence: 0.08,
+        candidateOffsets: [0, -0.02, 0.02, -0.01, 0.01]
+      }
     },
     {
       name: 'fesk1mp.wav',
@@ -87,6 +101,14 @@
         frame = await decoder.processAudioComplete(offsetData, audioData.sampleRate, 100)
       } else {
         frame = await decoder.processAudioComplete(audioData.data, audioData.sampleRate, 100)
+      }
+
+      if (!frame || !frame.isValid) {
+        frame = await decoder.decodeWithSymbolExtractor(
+          audioData.data,
+          audioData.sampleRate,
+          testFile.symbolExtractorOptions || {}
+        )
       }
 
       const endTime = performance.now()

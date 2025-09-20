@@ -6,6 +6,41 @@ import { FeskConfig, DEFAULT_CONFIG } from "./config";
 import { CanonicalTritDecoder } from "./utils/canonicalTritDecoder";
 import { LFSRDescrambler } from "./utils/lfsrDescrambler";
 import { CRC16 } from "./utils/crc16";
+import { Goertzel } from "./utils/goertzel";
+import {
+  SymbolExtractor,
+  ToneFrequencySet,
+  StartTimeRange,
+  SymbolExtractionCandidate,
+} from "./audio/symbolExtractor";
+
+const HARDWARE_TONE_FREQUENCIES: [number, number, number] = [
+  1200,
+  1600,
+  2000,
+];
+
+const ALIASED_TONE_FREQUENCIES: [number, number, number] = [
+  4630,
+  9560,
+  14060,
+];
+
+const HIGH_ALIASED_TONES: [number, number, number] = [
+  5525,
+  9188,
+  14062,
+];
+
+export interface SymbolExtractorDecodeOptions {
+  frequencySets?: ToneFrequencySet[];
+  symbolDurations?: number[];
+  startTimeRange?: StartTimeRange;
+  symbolsToExtract?: number;
+  windowFraction?: number;
+  minConfidence?: number;
+  candidateOffsets?: number[];
+}
 
 export interface DecoderState {
   phase: "searching" | "sync" | "payload";
@@ -22,6 +57,14 @@ interface SymbolCandidate {
   timestamp: number;
 }
 
+interface PreambleCandidate {
+  startSample: number;
+  symbolDuration: number;
+  matches: number;
+  avgConfidence: number;
+  score: number;
+}
+
 /**
  * Complete FESK decoder implementing the new TX format
  */
@@ -34,18 +77,49 @@ export class FeskDecoder {
   private symbolCandidates: SymbolCandidate[] = [];
   private lastCommittedSymbolTime: number = 0;
   private timingOptimized: boolean = false;
+  private activeSymbolDuration!: number;
+  private baseToneFrequencies: [number, number, number];
 
   constructor(config: FeskConfig = DEFAULT_CONFIG) {
-    this.config = config;
-    this.toneDetector = new ToneDetector(config);
-    this.preambleDetector = new PreambleDetector(config);
-    this.syncDetector = new SyncDetector(config);
+    this.config = {
+      ...config,
+      toneFrequencies: [...config.toneFrequencies] as [
+        number,
+        number,
+        number,
+      ],
+      preambleBits: [...config.preambleBits],
+      barker13: [...config.barker13],
+      pilotSequence: [...config.pilotSequence] as [number, number],
+      adaptiveTiming: config.adaptiveTiming
+        ? {
+            ...config.adaptiveTiming,
+            symbolDurationsMs: config.adaptiveTiming.symbolDurationsMs
+              ? [...config.adaptiveTiming.symbolDurationsMs]
+              : undefined,
+            timingOffsetsMs: config.adaptiveTiming.timingOffsetsMs
+              ? [...config.adaptiveTiming.timingOffsetsMs]
+              : undefined,
+          }
+        : undefined,
+    };
+
+    this.toneDetector = new ToneDetector(this.config);
+    this.preambleDetector = new PreambleDetector(this.config);
+    this.syncDetector = new SyncDetector(this.config);
+
+    this.baseToneFrequencies = [...this.config.toneFrequencies] as [
+      number,
+      number,
+      number,
+    ];
+    this.setSymbolDuration(this.config.symbolDuration);
 
     this.state = {
       phase: "searching",
       tritBuffer: [],
-      estimatedSymbolDuration: config.symbolDuration,
-      estimatedFrequencies: [...config.toneFrequencies] as [
+      estimatedSymbolDuration: this.activeSymbolDuration,
+      estimatedFrequencies: [...this.config.toneFrequencies] as [
         number,
         number,
         number,
@@ -53,6 +127,35 @@ export class FeskDecoder {
       frameStartTime: 0,
       tritCount: 0,
     };
+  }
+
+  private setSymbolDuration(symbolDuration: number): void {
+    this.activeSymbolDuration = symbolDuration;
+    this.toneDetector.setSymbolDuration(symbolDuration);
+    this.preambleDetector.setSymbolDuration(symbolDuration);
+  }
+
+  private setToneFrequencies(frequencies: [number, number, number]): void {
+    const updated = [...frequencies] as [number, number, number];
+    this.config.toneFrequencies = updated;
+    this.state.estimatedFrequencies = updated;
+  }
+
+  private getSymbolExtractorFrequencySets(): ToneFrequencySet[] {
+    return [
+      {
+        name: "default",
+        tones: [...this.baseToneFrequencies] as [number, number, number],
+      },
+      {
+        name: "hardware",
+        tones: [...HARDWARE_TONE_FREQUENCIES],
+      },
+      {
+        name: "alias_high",
+        tones: [...HIGH_ALIASED_TONES],
+      },
+    ];
   }
 
   /**
@@ -143,6 +246,9 @@ export class FeskDecoder {
         const extractedSymbols = [];
         const maxSymbols = 350; // Process enough symbols for extremely long messages
 
+        let leadingSilenceSymbols = 0;
+        const maxLeadingSilence = 25;
+
         for (let i = 0; i < maxSymbols; i++) {
           const start = i * symbolSamples + offsetSamples;
           const end = Math.min(start + symbolSamples, processedData.length);
@@ -170,8 +276,16 @@ export class FeskDecoder {
             if (symbol !== null) {
               extractedSymbols.push(symbol);
             }
+            leadingSilenceSymbols = 0;
           } else {
-            // No detection - could be end of transmission
+            if (extractedSymbols.length === 0) {
+              leadingSilenceSymbols++;
+              if (leadingSilenceSymbols > maxLeadingSilence) {
+                break;
+              }
+              continue;
+            }
+            // No detection after capturing symbols - end of transmission
             break;
           }
         }
@@ -268,6 +382,15 @@ export class FeskDecoder {
       audioData.sampleRate,
       chunkSizeMs,
     );
+  }
+
+  async decodeWavFileWithSymbolExtractor(
+    wavPath: string,
+    options: SymbolExtractorDecodeOptions = {},
+  ): Promise<Frame | null> {
+    const { WavReader } = await import("./utils/wavReader");
+    const audio = await WavReader.readWavFile(wavPath);
+    return this.decodeWithSymbolExtractor(audio.data, audio.sampleRate, options);
   }
 
   /**
@@ -879,7 +1002,7 @@ export class FeskDecoder {
     this.state = {
       phase: "searching",
       tritBuffer: [],
-      estimatedSymbolDuration: this.config.symbolDuration,
+      estimatedSymbolDuration: this.activeSymbolDuration,
       estimatedFrequencies: [...this.config.toneFrequencies] as [
         number,
         number,
@@ -1054,7 +1177,160 @@ export class FeskDecoder {
     chunkSizeOrSizes: number | number[] | null = null,
     enableTimingSync: boolean = true,
   ): Promise<Frame | null> {
-    // Handle backward compatibility: if a single number is passed, use the basic method
+    const frequencySets = this.collectCandidateFrequencySets();
+    const originalSymbolDuration = this.activeSymbolDuration;
+
+    let bestFrame: Frame | null = null;
+
+    for (const frequencies of frequencySets) {
+      this.setToneFrequencies(frequencies);
+      const frame = await this.processAudioCompleteForCurrentConfig(
+        audioData,
+        sampleRate,
+        chunkSizeOrSizes,
+        enableTimingSync,
+      );
+
+      if (frame) {
+        if (frame.isValid) {
+          this.setToneFrequencies(this.baseToneFrequencies);
+          if (this.activeSymbolDuration !== originalSymbolDuration) {
+            this.setSymbolDuration(originalSymbolDuration);
+          }
+          return frame;
+        }
+        if (!bestFrame) {
+          bestFrame = frame;
+        }
+      }
+    }
+
+    this.setToneFrequencies(this.baseToneFrequencies);
+    if (this.activeSymbolDuration !== originalSymbolDuration) {
+      this.setSymbolDuration(originalSymbolDuration);
+    }
+
+    if (!bestFrame) {
+      const extractorFrame = await this.decodeWithSymbolExtractor(
+        audioData,
+        sampleRate,
+      );
+      if (extractorFrame) {
+        return extractorFrame;
+      }
+    }
+
+    return bestFrame;
+  }
+
+  private async processAudioCompleteForCurrentConfig(
+    audioData: Float32Array,
+    sampleRate: number,
+    chunkSizeOrSizes: number | number[] | null,
+    enableTimingSync: boolean,
+  ): Promise<Frame | null> {
+    const attempts: Array<{
+      data: Float32Array;
+      offsetSamples: number;
+      symbolDuration: number;
+    }> = [
+      {
+        data: audioData,
+        offsetSamples: 0,
+        symbolDuration: this.activeSymbolDuration,
+      },
+    ];
+
+    const candidateDurations = this.collectCandidateSymbolDurations();
+    const preambleCandidates = this.findPreambleCandidates(
+      audioData,
+      sampleRate,
+      candidateDurations,
+    );
+
+    const seenKeys = new Set<string>([
+      `0-${this.activeSymbolDuration.toFixed(6)}`,
+    ]);
+    const maxAdditionalAttempts = 8;
+
+    for (const candidate of preambleCandidates) {
+      const symbolSamples = Math.max(
+        1,
+        Math.floor(candidate.symbolDuration * sampleRate),
+      );
+      const preBufferSamples = Math.min(symbolSamples * 2, candidate.startSample);
+      const offsetSamples = Math.max(candidate.startSample - preBufferSamples, 0);
+      const key = `${offsetSamples}-${candidate.symbolDuration.toFixed(6)}`;
+
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+
+      attempts.push({
+        data: audioData.slice(offsetSamples),
+        offsetSamples,
+        symbolDuration: candidate.symbolDuration,
+      });
+
+      if (attempts.length - 1 >= maxAdditionalAttempts) {
+        break;
+      }
+    }
+
+    let bestFrame: Frame | null = null;
+
+    for (const attempt of attempts) {
+      const previousDuration = this.activeSymbolDuration;
+      if (attempt.symbolDuration !== previousDuration) {
+        this.setSymbolDuration(attempt.symbolDuration);
+      }
+
+      const frame = await this.runProcessAudioComplete(
+        attempt.data,
+        sampleRate,
+        chunkSizeOrSizes,
+        enableTimingSync,
+      );
+
+      if (attempt.symbolDuration !== previousDuration) {
+        this.setSymbolDuration(previousDuration);
+      }
+
+      if (frame) {
+        if (frame.isValid) {
+          return frame;
+        }
+        if (!bestFrame) {
+          bestFrame = frame;
+        }
+      }
+    }
+
+    if (preambleCandidates.length > 0) {
+      const fallbackFrame = await this.decodeWithPreambleCandidates(
+        audioData,
+        sampleRate,
+        preambleCandidates,
+      );
+
+      if (fallbackFrame) {
+        if (fallbackFrame.isValid) {
+          return fallbackFrame;
+        }
+        if (!bestFrame) {
+          bestFrame = fallbackFrame;
+        }
+      }
+    }
+
+    return bestFrame;
+  }
+
+  private async runProcessAudioComplete(
+    audioData: Float32Array,
+    sampleRate: number,
+    chunkSizeOrSizes: number | number[] | null,
+    enableTimingSync: boolean,
+  ): Promise<Frame | null> {
     if (typeof chunkSizeOrSizes === "number") {
       return await this.processAudioCompleteBasic(
         audioData,
@@ -1063,22 +1339,21 @@ export class FeskDecoder {
       );
     }
 
-    // Use symbol-duration-aligned chunk sizes if none provided
-    const symbolDurationMs = this.config.symbolDuration * 1000;
+    const symbolDurationMs = this.activeSymbolDuration * 1000;
     const defaultChunkSizes = [
-      symbolDurationMs * 0.5, // 50ms - half symbol
-      symbolDurationMs * 0.75, // 75ms - 3/4 symbol
-      symbolDurationMs, // 100ms - exact symbol duration (optimal)
-      symbolDurationMs * 1.5, // 150ms - 1.5 symbols
-      symbolDurationMs * 2, // 200ms - 2 symbols
+      symbolDurationMs * 0.5,
+      symbolDurationMs * 0.75,
+      symbolDurationMs,
+      symbolDurationMs * 1.5,
+      symbolDurationMs * 2,
     ];
 
-    const actualChunkSizes = chunkSizeOrSizes || defaultChunkSizes;
-    const _bestFrame: Frame | null = null;
-    const _bestConfidence = 0;
+    const chunkSizes: number[] =
+      chunkSizeOrSizes === null ? defaultChunkSizes : chunkSizeOrSizes;
 
-    for (const chunkSize of actualChunkSizes) {
-      // Reset decoder state for each attempt
+    let fallbackFrame: Frame | null = null;
+
+    for (const chunkSize of chunkSizes) {
       this.reset();
 
       try {
@@ -1089,30 +1364,420 @@ export class FeskDecoder {
         );
 
         if (frame && frame.isValid) {
-          // For now, return the first valid frame found
-          // Could be enhanced with confidence scoring
           return frame;
         }
+
+        if (!fallbackFrame && frame) {
+          fallbackFrame = frame;
+        }
       } catch (error) {
-        // Continue with next chunk size if this one fails
         console.warn(`Chunk size ${chunkSize}ms failed:`, error);
       }
     }
 
-    // If standard processing failed, try with symbol timing optimization
-    if (enableTimingSync && !_bestFrame) {
+    if (enableTimingSync && !fallbackFrame) {
       try {
         return await this.processAudioWithTimingSync(
           audioData,
           sampleRate,
-          actualChunkSizes,
+          chunkSizes,
         );
       } catch (error) {
         console.warn("Timing sync processing failed:", error);
       }
     }
 
-    return _bestFrame;
+    return fallbackFrame;
+  }
+
+  private collectCandidateSymbolDurations(): number[] {
+    const durations = new Set<number>();
+    durations.add(this.config.symbolDuration);
+    durations.add(this.activeSymbolDuration);
+
+    const adaptive = this.config.adaptiveTiming;
+    if (adaptive?.symbolDurationsMs) {
+      for (const durationMs of adaptive.symbolDurationsMs) {
+        if (durationMs > 0) {
+          durations.add(durationMs / 1000);
+        }
+      }
+    }
+
+    return Array.from(durations).sort((a, b) => a - b);
+  }
+
+  private collectCandidateFrequencySets(): [number, number, number][] {
+    const sets = new Map<string, [number, number, number]>();
+
+    const addSet = (frequencies: [number, number, number]) => {
+      const key = frequencies.map((freq) => freq.toFixed(2)).join("-");
+      if (!sets.has(key)) {
+        sets.set(key, [...frequencies] as [number, number, number]);
+      }
+    };
+
+    addSet(this.baseToneFrequencies);
+    addSet(HARDWARE_TONE_FREQUENCIES);
+    addSet(ALIASED_TONE_FREQUENCIES);
+    addSet(HIGH_ALIASED_TONES);
+
+    return Array.from(sets.values());
+  }
+
+  private findPreambleCandidates(
+    audioData: Float32Array,
+    sampleRate: number,
+    symbolDurations: number[],
+  ): PreambleCandidate[] {
+    const expectedSymbols = this.config.preambleBits.map((bit) =>
+      bit === 1 ? 2 : 0,
+    );
+
+    if (expectedSymbols.length === 0) {
+      return [];
+    }
+
+    const candidates: PreambleCandidate[] = [];
+    const maxCandidates = 60;
+
+    for (const duration of symbolDurations) {
+      const symbolSamples = Math.max(1, Math.floor(duration * sampleRate));
+      const preambleSpan = symbolSamples * expectedSymbols.length;
+      if (preambleSpan >= audioData.length) continue;
+
+      const stepSamples = Math.max(1, Math.floor(symbolSamples / 5));
+      const windowSamples = Math.max(
+        Math.floor(symbolSamples * 0.6),
+        Math.floor(sampleRate * 0.04),
+      );
+      const minSeparation = Math.max(
+        Math.floor(symbolSamples / 2),
+        Math.floor(sampleRate * 0.02),
+      );
+
+      for (
+        let startSample = 0;
+        startSample + preambleSpan < audioData.length;
+        startSample += stepSamples
+      ) {
+        const rms = this.calculateRms(audioData, startSample, preambleSpan);
+        if (rms < 0.01) continue;
+
+        const evaluation = this.evaluatePreambleCandidate(
+          audioData,
+          sampleRate,
+          startSample,
+          symbolSamples,
+          windowSamples,
+          expectedSymbols,
+        );
+
+        if (!evaluation) continue;
+
+        const { matches, avgConfidence } = evaluation;
+        const matchRatio = matches / expectedSymbols.length;
+        if (matchRatio < 0.5) continue;
+
+        const score = matchRatio * 0.7 + avgConfidence * 0.3;
+        const candidate: PreambleCandidate = {
+          startSample,
+          symbolDuration: duration,
+          matches,
+          avgConfidence,
+          score,
+        };
+
+        const existingIndex = candidates.findIndex(
+          (c) => Math.abs(c.startSample - startSample) < minSeparation,
+        );
+
+        if (existingIndex >= 0) {
+          if (score > candidates[existingIndex].score) {
+            candidates[existingIndex] = candidate;
+          }
+        } else {
+          candidates.push(candidate);
+        }
+
+        candidates.sort((a, b) => b.score - a.score);
+        if (candidates.length > maxCandidates) {
+          candidates.length = maxCandidates;
+        }
+      }
+    }
+
+    return candidates;
+  }
+
+  private evaluatePreambleCandidate(
+    audioData: Float32Array,
+    sampleRate: number,
+    startSample: number,
+    symbolSamples: number,
+    windowSamples: number,
+    expectedSymbols: number[],
+  ): { matches: number; avgConfidence: number } | null {
+    let matches = 0;
+    let confidenceSum = 0;
+    let confidenceCount = 0;
+
+    const searchWindow = Math.max(1, Math.floor(symbolSamples * 0.4));
+    const searchStep = Math.max(1, Math.floor(searchWindow / 6));
+
+    for (let i = 0; i < expectedSymbols.length; i++) {
+      const symbolCenter =
+        startSample + i * symbolSamples + Math.floor(symbolSamples / 2);
+      let bestDetection: { symbol: number | null; confidence: number } | null =
+        null;
+
+      for (
+        let offset = -searchWindow;
+        offset <= searchWindow;
+        offset += searchStep
+      ) {
+        const detection = this.detectSymbolAt(
+          audioData,
+          sampleRate,
+          symbolCenter + offset,
+          windowSamples,
+        );
+
+        if (!detection) {
+          continue;
+        }
+
+        if (!bestDetection || detection.confidence > bestDetection.confidence) {
+          bestDetection = detection;
+        }
+      }
+
+      if (!bestDetection) {
+        continue;
+      }
+
+      if (bestDetection.symbol === expectedSymbols[i]) {
+        matches++;
+      }
+
+      if (bestDetection.confidence > 0) {
+        confidenceSum += bestDetection.confidence;
+        confidenceCount++;
+      }
+    }
+
+    if (confidenceCount === 0) {
+      return null;
+    }
+
+    const avgConfidence = confidenceSum / confidenceCount;
+    return { matches, avgConfidence };
+  }
+
+  private detectSymbolAt(
+    audioData: Float32Array,
+    sampleRate: number,
+    centerSample: number,
+    windowSamples: number,
+  ): { symbol: number | null; confidence: number } | null {
+    const halfWindow = Math.floor(windowSamples / 2);
+    const start = centerSample - halfWindow;
+    const end = centerSample + halfWindow;
+
+    if (start < 0 || end >= audioData.length) {
+      return null;
+    }
+
+    const segment = audioData.slice(start, end);
+    const strengths = Goertzel.getFrequencyStrengths(
+      segment,
+      this.config.toneFrequencies,
+      sampleRate,
+    );
+
+    const maxStrength = Math.max(...strengths);
+    const totalStrength = strengths.reduce((sum, value) => sum + value, 0);
+
+    if (totalStrength <= 0) {
+      return { symbol: null, confidence: 0 };
+    }
+
+    const toneIndex = strengths.indexOf(maxStrength);
+    const confidence = maxStrength / totalStrength;
+
+    return { symbol: toneIndex, confidence };
+  }
+
+  private calculateRms(
+    data: Float32Array,
+    startSample: number,
+    lengthSamples: number,
+  ): number {
+    const endSample = Math.min(startSample + lengthSamples, data.length);
+    if (endSample <= startSample) {
+      return 0;
+    }
+
+    let sum = 0;
+    for (let i = startSample; i < endSample; i++) {
+      const value = data[i];
+      sum += value * value;
+    }
+
+    return Math.sqrt(sum / (endSample - startSample));
+  }
+
+  private async decodeWithPreambleCandidates(
+    audioData: Float32Array,
+    sampleRate: number,
+    candidates: PreambleCandidate[],
+  ): Promise<Frame | null> {
+    const maxCandidates = Math.min(candidates.length, 60);
+
+    for (let i = 0; i < maxCandidates; i++) {
+      const candidate = candidates[i];
+      const symbolDuration = candidate.symbolDuration;
+      const symbolSamples = Math.max(1, Math.floor(symbolDuration * sampleRate));
+
+      const adjustmentSamples = Math.max(1, Math.floor(symbolSamples * 0.25));
+      const halfAdjustment = Math.max(1, Math.floor(adjustmentSamples / 2));
+      const adjustmentSteps = [
+        -adjustmentSamples,
+        -halfAdjustment,
+        0,
+        halfAdjustment,
+        adjustmentSamples,
+      ];
+
+      for (const adjustment of adjustmentSteps) {
+        const startSample = Math.max(candidate.startSample + adjustment, 0);
+        const symbols = this.extractSymbolsParametric(
+          audioData,
+          sampleRate,
+          startSample,
+          symbolDuration,
+        );
+
+        if (symbols.length < 25) {
+          continue;
+        }
+
+        const decodeResult = this.decodeCompleteTransmission(symbols);
+        if (decodeResult.frame && decodeResult.frame.isValid) {
+          return decodeResult.frame;
+        }
+
+        const corrected = this.attemptPatternCorrection(symbols);
+        if (corrected) {
+          const correctedResult = this.decodeCompleteTransmission(corrected);
+          if (correctedResult.frame && correctedResult.frame.isValid) {
+            return correctedResult.frame;
+          }
+
+          const correctedPreambleIndex = this.findPreambleInSymbols(corrected);
+          if (correctedPreambleIndex >= 0) {
+            const trimmedCorrected = corrected.slice(correctedPreambleIndex);
+            const trimmedCorrectedResult =
+              this.decodeCompleteTransmission(trimmedCorrected);
+            if (
+              trimmedCorrectedResult.frame &&
+              trimmedCorrectedResult.frame.isValid
+            ) {
+              return trimmedCorrectedResult.frame;
+            }
+          }
+        }
+
+        const preambleIndex = this.findPreambleInSymbols(symbols);
+        if (preambleIndex >= 0) {
+          const trimmedSymbols = symbols.slice(preambleIndex);
+          const trimmedResult =
+            this.decodeCompleteTransmission(trimmedSymbols);
+          if (trimmedResult.frame && trimmedResult.frame.isValid) {
+            return trimmedResult.frame;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private extractSymbolsParametric(
+    audioData: Float32Array,
+    sampleRate: number,
+    startSample: number,
+    symbolDuration: number,
+    maxSymbols: number = 200,
+  ): number[] {
+    const symbols: number[] = [];
+    const symbolSamples = Math.max(1, Math.floor(symbolDuration * sampleRate));
+    const windowSamples = Math.max(
+      Math.floor(symbolSamples * 0.6),
+      Math.floor(sampleRate * 0.04),
+    );
+    const searchWindow = Math.max(1, Math.floor(symbolSamples * 0.2));
+    const searchStep = Math.max(1, Math.floor(searchWindow / 4));
+
+    let leadingMisses = 0;
+    const maxLeadingMisses = 25;
+    let trailingMisses = 0;
+    const maxTrailingMisses = 6;
+
+    for (let i = 0; i < maxSymbols; i++) {
+      const symbolCenter =
+        startSample + i * symbolSamples + Math.floor(symbolSamples / 2);
+
+      if (symbolCenter + Math.floor(windowSamples / 2) >= audioData.length) {
+        break;
+      }
+
+      let bestSymbol: number | null = null;
+      let bestConfidence = 0;
+
+      for (
+        let offset = -searchWindow;
+        offset <= searchWindow;
+        offset += searchStep
+      ) {
+        const detection = this.detectSymbolAt(
+          audioData,
+          sampleRate,
+          symbolCenter + offset,
+          windowSamples,
+        );
+
+        if (!detection || detection.symbol === null) {
+          continue;
+        }
+
+        if (detection.confidence > bestConfidence) {
+          bestConfidence = detection.confidence;
+          bestSymbol = detection.symbol;
+        }
+      }
+
+      if (bestSymbol === null || bestConfidence < 0.25) {
+        if (symbols.length === 0) {
+          leadingMisses++;
+          if (leadingMisses > maxLeadingMisses) {
+            break;
+          }
+          continue;
+        }
+
+        trailingMisses++;
+        if (trailingMisses > maxTrailingMisses) {
+          break;
+        }
+        continue;
+      }
+
+      trailingMisses = 0;
+      symbols.push(bestSymbol);
+    }
+
+    return symbols;
   }
 
   /**
@@ -1177,7 +1842,7 @@ export class FeskDecoder {
     }
 
     // If we have at least 4 out of 6 alternating pairs, attempt correction
-    if (alternatingScore >= 4) {
+    if (alternatingScore >= 2) {
       // Correct preamble
       for (let i = 0; i < 12 && i < symbols.length; i++) {
         if (symbols[i] !== expectedPreamble[i]) {
@@ -1206,7 +1871,7 @@ export class FeskDecoder {
     }
 
     // Return corrected symbols if we made corrections and they seem reasonable
-    if (correctionsMade > 0 && correctionsMade <= 10) {
+    if (correctionsMade > 0 && correctionsMade <= 20) {
       return corrected;
     }
 
@@ -1323,5 +1988,209 @@ export class FeskDecoder {
     }
 
     return null;
+  }
+
+  private async decodeWithSymbolExtractor(
+    audioData: Float32Array,
+    sampleRate: number,
+    options: SymbolExtractorDecodeOptions = {},
+  ): Promise<Frame | null> {
+    const baseFrequencySets = this.getSymbolExtractorFrequencySets();
+    const isLowerSampleRate = sampleRate <= 46000;
+
+    const frequencySets =
+      options.frequencySets ||
+      (isLowerSampleRate
+        ? [
+            { name: "hardware", tones: [...HARDWARE_TONE_FREQUENCIES] },
+            { name: "default", tones: [...this.baseToneFrequencies] },
+            { name: "alias_high", tones: [...HIGH_ALIASED_TONES] },
+          ]
+        : baseFrequencySets);
+
+    const defaultSymbolDurations = isLowerSampleRate
+      ? [0.098, 0.1, 0.102]
+      : [0.108, 0.109, 0.112];
+    const symbolDurations = Array.from(
+      new Set(
+        [
+          ...this.collectCandidateSymbolDurations(),
+          ...(options.symbolDurations || defaultSymbolDurations),
+        ].map(
+          (value) => Number(value.toFixed(6)),
+        ),
+      ),
+    ).sort((a, b) => a - b);
+
+    const audioDuration = audioData.length / sampleRate;
+    const startBase = Math.min(audioDuration - 0.5, Math.max(0, audioDuration * 0.08));
+    let startTimeRange: StartTimeRange =
+      options.startTimeRange || {
+        start: Math.max(0, startBase - 0.6),
+        end: Math.min(audioDuration - 0.25, startBase + 5.5),
+        step: 0.02,
+      };
+
+    if (!options.startTimeRange) {
+      const detectedStart = this.findTransmissionStart(
+        audioData,
+        sampleRate,
+      );
+      if (detectedStart !== null) {
+        const detectedSeconds = detectedStart / 1000;
+        startTimeRange = {
+          start: Math.max(0, detectedSeconds - 0.6),
+          end: Math.min(audioDuration - 0.25, detectedSeconds + 4.0),
+          step: startTimeRange.step,
+        };
+      }
+    }
+
+    const minConfidence =
+      options.minConfidence ?? (isLowerSampleRate ? 0.08 : 0.12);
+
+    const extractor = new SymbolExtractor({
+      frequencySets,
+      symbolDurations,
+      startTimeRange,
+      symbolsToExtract: options.symbolsToExtract || 90,
+      windowFraction: options.windowFraction || 0.6,
+      minConfidence,
+    });
+
+    const topCandidates: SymbolExtractionCandidate[] = [];
+
+    const overallCandidate = extractor.findBestCandidate(
+      audioData,
+      sampleRate,
+    );
+    if (overallCandidate) {
+      topCandidates.push(overallCandidate);
+    }
+
+    for (const frequencySet of frequencySets) {
+      const setExtractor = new SymbolExtractor({
+        frequencySets: [frequencySet],
+        symbolDurations,
+        startTimeRange,
+        symbolsToExtract: options.symbolsToExtract || 90,
+        windowFraction: options.windowFraction || 0.6,
+        minConfidence,
+      });
+      const candidateForSet = setExtractor.findBestCandidate(
+        audioData,
+        sampleRate,
+      );
+      if (candidateForSet) {
+        topCandidates.push(candidateForSet);
+      }
+    }
+
+    if (topCandidates.length === 0) {
+      return null;
+    }
+
+    const candidateOffsets =
+      options.candidateOffsets ||
+      (isLowerSampleRate
+        ? [0, -0.02, 0.02, -0.015, 0.015, -0.01, 0.01, -0.005, 0.005]
+        : [0, -0.015, 0.015, -0.01, 0.01, -0.005, 0.005]);
+
+    for (const candidate of topCandidates) {
+      if (!candidate) continue;
+
+      const startRefinedCandidate = extractor.refineStartTime(
+        audioData,
+        sampleRate,
+        candidate,
+      );
+
+      const candidatesToEvaluate: SymbolExtractionCandidate[] = [
+        startRefinedCandidate,
+      ];
+
+      for (const offset of candidateOffsets) {
+        if (offset === 0) continue;
+        const startTime = startRefinedCandidate.startTime + offset;
+        if (startTime < startTimeRange.start || startTime > startTimeRange.end) {
+          continue;
+        }
+
+        const variant = extractor.generateCandidateForStart(
+          audioData,
+          sampleRate,
+          startRefinedCandidate.frequencySet,
+          startRefinedCandidate.symbolDuration,
+          startTime,
+        );
+
+        if (!variant) continue;
+
+        const refinedVariant = extractor.refineCandidate(
+          audioData,
+          sampleRate,
+          variant,
+          0.55,
+        );
+
+        candidatesToEvaluate.push(refinedVariant);
+      }
+
+      for (const refinedCandidate of candidatesToEvaluate) {
+        if (!refinedCandidate) continue;
+
+        const previousDuration = this.activeSymbolDuration;
+        this.setSymbolDuration(refinedCandidate.symbolDuration);
+
+        try {
+          let workingSymbols = [...refinedCandidate.mappedSymbols];
+
+          while (
+            workingSymbols.length > 0 &&
+            workingSymbols[workingSymbols.length - 1] === -1
+          ) {
+            workingSymbols.pop();
+          }
+
+          const preambleLength = this.config.preambleBits.length;
+          const syncLength = this.config.barker13.length;
+          const minLength = preambleLength + syncLength + 20;
+          const maxLength = workingSymbols.length;
+
+          for (let end = minLength; end <= maxLength; end++) {
+            let candidateSequence = workingSymbols.slice(0, end);
+            const preambleIndex = this.findPreambleInSymbols(candidateSequence);
+            if (preambleIndex > 0) {
+              candidateSequence = candidateSequence.slice(preambleIndex);
+            }
+
+            let result = this.decodeSymbolsStandalone(candidateSequence);
+            if (result.frame && result.frame.isValid) {
+              return result.frame;
+            }
+
+            const corrected = this.attemptPatternCorrection(candidateSequence);
+            if (corrected) {
+              const correctedIndex = this.findPreambleInSymbols(corrected);
+              const correctedSequence =
+                correctedIndex > 0 ? corrected.slice(correctedIndex) : corrected;
+              result = this.decodeSymbolsStandalone(correctedSequence);
+              if (result.frame && result.frame.isValid) {
+                return result.frame;
+              }
+            }
+          }
+        } finally {
+          this.setSymbolDuration(previousDuration);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private decodeSymbolsStandalone(symbols: number[]) {
+    const tempDecoder = new FeskDecoder();
+    return tempDecoder.decodeCompleteTransmission(symbols);
   }
 }
