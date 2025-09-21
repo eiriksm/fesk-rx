@@ -6,9 +6,11 @@ export class ToneDetector {
   private config: FeskConfig;
   private windowSize: number;
   private hopSize: number;
+  private symbolDuration: number;
 
   constructor(config: FeskConfig) {
     this.config = config;
+    this.symbolDuration = config.symbolDuration;
     // Use window size optimized for FESK tone detection
     // For 44.1kHz, we want good frequency resolution around 2-4kHz
     const windowDurationMs = 25; // 25ms window for good time/freq tradeoff (matching original)
@@ -17,6 +19,10 @@ export class ToneDetector {
     );
     this.windowSize = Math.pow(2, Math.ceil(Math.log2(windowSamples))); // Round to next power of 2 for consistency
     this.hopSize = Math.floor(this.windowSize / 8); // More overlap for better detection (matching original)
+  }
+
+  setSymbolDuration(symbolDuration: number): void {
+    this.symbolDuration = symbolDuration;
   }
 
   detectTones(audioSample: AudioSample): ToneDetection[] {
@@ -43,7 +49,7 @@ export class ToneDetector {
     const windowedData = this.applyHammingWindow(window);
 
     // Get all frequency strengths
-    const strengths = Goertzel.getFrequencyStrengths(
+    const strengths = Goertzel.getFrequencyStrengthsParametric(
       windowedData,
       this.config.toneFrequencies,
       sampleRate,
@@ -181,9 +187,7 @@ export class ToneDetector {
     const data = audioSample.data;
     const sampleRate = audioSample.sampleRate;
 
-    const symbolDurationSamples = Math.floor(
-      this.config.symbolDuration * sampleRate,
-    );
+    const symbolDurationSamples = Math.floor(this.symbolDuration * sampleRate);
     const analysisWindowSamples = this.windowSize; // Use our optimized window size
     const startOffsetSamples = Math.floor(startOffsetSeconds * sampleRate);
 
@@ -204,7 +208,7 @@ export class ToneDetector {
       if (windowEndSample >= data.length) break;
 
       const segment = data.slice(windowStartSample, windowEndSample);
-      const result = Goertzel.detectStrongestTone(
+      const result = Goertzel.detectStrongestToneParametric(
         segment,
         this.config.toneFrequencies,
         sampleRate,
@@ -236,9 +240,7 @@ export class ToneDetector {
     const data = audioSample.data;
     const sampleRate = audioSample.sampleRate;
 
-    const symbolDurationSamples = Math.floor(
-      this.config.symbolDuration * sampleRate,
-    );
+    const symbolDurationSamples = Math.floor(this.symbolDuration * sampleRate);
     const analysisWindowSamples = this.windowSize;
 
     // Advanced timing search parameters
@@ -333,9 +335,7 @@ export class ToneDetector {
     const expectedPreamble = [2, 0, 2, 0, 2, 0, 2, 0];
     const data = audioSample.data;
     const sampleRate = audioSample.sampleRate;
-    const symbolDurationSamples = Math.floor(
-      this.config.symbolDuration * sampleRate,
-    );
+    const symbolDurationSamples = Math.floor(this.symbolDuration * sampleRate);
 
     let bestOffset = 0;
     let bestScore = 0;
@@ -361,7 +361,7 @@ export class ToneDetector {
         if (windowStart < 0 || windowEnd >= data.length) continue;
 
         const segment = data.slice(windowStart, windowEnd);
-        const result = Goertzel.detectStrongestTone(
+        const result = Goertzel.detectStrongestToneParametric(
           segment,
           this.config.toneFrequencies,
           sampleRate,
@@ -391,5 +391,52 @@ export class ToneDetector {
       windowed[i] = data[i] * w;
     }
     return windowed;
+  }
+
+  static normalizeSignal(data: Float32Array, targetPeak: number): Float32Array {
+    if (data.length === 0) return new Float32Array();
+    let maxAmplitude = 0;
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > maxAmplitude) maxAmplitude = abs;
+    }
+
+    if (maxAmplitude === 0) {
+      return new Float32Array(data);
+    }
+
+    const scale = targetPeak / maxAmplitude;
+    const result = new Float32Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      const scaled = data[i] * scale;
+      result[i] = Math.max(-1, Math.min(1, scaled));
+    }
+    return result;
+  }
+
+  static normalizeRMS(data: Float32Array, targetRms: number): Float32Array {
+    if (data.length === 0) return new Float32Array();
+    let sumSquares = 0;
+    for (let i = 0; i < data.length; i++) {
+      sumSquares += data[i] * data[i];
+    }
+    const currentRms = Math.sqrt(sumSquares / data.length);
+    if (currentRms === 0) {
+      return new Float32Array(data);
+    }
+
+    const scale = targetRms / currentRms;
+    const result = new Float32Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      const scaled = data[i] * scale;
+      result[i] = Math.max(-1, Math.min(1, scaled));
+    }
+    return result;
+  }
+
+  static autoGainControl(data: Float32Array, threshold: number): Float32Array {
+    if (data.length === 0) return new Float32Array();
+    const normalized = this.normalizeSignal(data, threshold);
+    return this.normalizeRMS(normalized, threshold / 2);
   }
 }

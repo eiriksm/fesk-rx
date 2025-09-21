@@ -26,7 +26,7 @@ export const DEFAULT_CONFIG: FeskConfig = {
 
   // Adaptive timing configuration for robust WAV file processing
   adaptiveTiming: {
-    symbolDurationsMs: [105, 100, 95, 110], // Symbol durations (prioritize 105ms which works for both fesk1 and fesk2)
+    symbolDurationsMs: [105, 102, 100, 95, 110], // Symbol durations (prioritize 105ms which works for both fesk1 and fesk2)
     timingOffsetsMs: [20, 25, 0, 15, 40, 50, 60], // Timing offsets (added 60ms for fesk1hw)
     enableAdaptive: true, // Enable adaptive timing by default
   },

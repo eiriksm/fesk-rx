@@ -6,6 +6,7 @@ export { WavReader } from "./utils/wavReader";
 export { DEFAULT_CONFIG } from "./config";
 export * from "./types";
 export * from "./config";
+export { SymbolExtractor } from "./audio/symbolExtractor";
 
 // Simple example usage
 if (require.main === module) {
