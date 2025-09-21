@@ -1,5 +1,6 @@
 <script>
   export let results = null
+  export let durationMs = null
 
   $: decodedMessage = results?.frame?.payload ?
     new TextDecoder().decode(results.frame.payload) : null
@@ -103,6 +104,18 @@
                     {results.frame.isValid ? 'Valid' : 'Invalid'}
                   </span>
                 </div>
+                {#if results.frequencySet}
+                  <div>
+                    <label class="font-medium text-gray-700">Frequency Set:</label>
+                    <span class="ml-2 font-mono">{results.frequencySet}</span>
+                  </div>
+                {/if}
+                {#if durationMs}
+                  <div>
+                    <label class="font-medium text-gray-700">Decode Time:</label>
+                    <span class="ml-2 font-mono">{(durationMs / 1000).toFixed(2)}s</span>
+                  </div>
+                {/if}
               </div>
 
               {#if results.frame.crc !== undefined}

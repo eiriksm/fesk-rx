@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte'
+  import { trimSilence } from '../utils/audio'
 
   const dispatch = createEventDispatcher()
 
@@ -206,7 +207,8 @@
           startTime: result.startTime,
           preambleValid: result.frame ? true : false,
           syncValid: result.frame ? true : false,
-          usedParameters: result.usedParameters // Include which parameters worked
+          usedParameters: result.usedParameters,
+          frequencySet: result.frequencySet ?? null
         }
 
         dispatch('decodeComplete', { results, symbols: result.symbols })
@@ -315,15 +317,18 @@
 
         let frame = null
         let symbols = []
+        let frequencySetUsed = null
 
         if (combo.tolerantMode) {
           const result = await tryTolerantDecodeWithParams(audioData, decoder, combo)
           frame = result.frame
           symbols = result.symbols
+          frequencySetUsed = result.frequencySet ?? frequencySetUsed
         } else {
           const result = await tryStandardDecodeWithParams(audioData, decoder, combo)
           frame = result.frame
           symbols = result.symbols
+          frequencySetUsed = result.frequencySet ?? frequencySetUsed
         }
 
         // Check if we got a valid result
@@ -333,8 +338,9 @@
             success: true,
             frame,
             symbols,
-            startTime: null,
-            usedParameters: combo
+            startTime: result.startTime ?? null,
+            usedParameters: combo,
+            frequencySet: frequencySetUsed
           }
         }
       } catch (error) {
@@ -357,69 +363,183 @@
   }
 
   async function tryStandardDecode(audioData, decoder, params = {}) {
-    // Try to find transmission start
-    const startTime = decoder.findTransmissionStart(audioData.data, audioData.sampleRate)
+    const preferExtractor = audioData.sampleRate >= 47000
+    const useAdvanced = params.useAdvancedTiming || params.useParametricGoertzel || params.useHannWindow
 
-    let frame = null
-    let symbols = []
-
-    if (startTime !== null) {
-      // Process audio from detected start
-      const startSeconds = startTime / 1000
-      const offsetData = audioData.data.slice(Math.floor(startSeconds * audioData.sampleRate))
-
-      const currentChunkSize = params.chunkSizeMs || chunkSizeMs
-      frame = await decoder.processAudioComplete(offsetData, audioData.sampleRate, currentChunkSize)
-
-      // Extract symbols for visualization
-      const audioSample = {
-        data: offsetData,
-        sampleRate: audioData.sampleRate,
-        duration: offsetData.length / audioData.sampleRate
-      }
-
-      // Use advanced extraction if enabled by parameters
-      const useAdvanced = params.useAdvancedTiming || params.useParametricGoertzel || params.useHannWindow
+    const getSymbols = sample => {
       if (useAdvanced) {
-        symbols = decoder.toneDetector.extractSymbolsAdvanced(audioSample, {
+        return decoder.toneDetector.extractSymbolsAdvanced(sample, {
           useParametricGoertzel: params.useParametricGoertzel || false,
           useHannWindow: params.useHannWindow || false,
           timingSearchWindow: params.useAdvancedTiming ? Math.floor(decoder.config.symbolDuration * audioData.sampleRate * 0.1) : 0
         })
-      } else {
-        symbols = decoder.toneDetector.extractSymbols(audioSample, 0)
       }
-    } else {
-      // Try processing entire audio
-      const currentChunkSize = params.chunkSizeMs || chunkSizeMs
-      frame = await decoder.processAudioComplete(audioData.data, audioData.sampleRate, currentChunkSize)
+      return decoder.toneDetector.extractSymbols(sample, 0)
+    }
 
-      // Extract symbols from full audio
-      const audioSample = {
-        data: audioData.data,
-        sampleRate: audioData.sampleRate,
-        duration: audioData.data.length / audioData.sampleRate
-      }
+    const { data: trimmedData, leadPaddingMs } = trimSilence(audioData.data, audioData.sampleRate)
+    const workingData = trimmedData.length > 0 ? trimmedData : audioData.data
 
-      // Use advanced extraction if enabled by parameters
-      const useAdvanced = params.useAdvancedTiming || params.useParametricGoertzel || params.useHannWindow
-      if (useAdvanced) {
-        symbols = decoder.toneDetector.extractSymbolsAdvanced(audioSample, {
-          useParametricGoertzel: params.useParametricGoertzel || false,
-          useHannWindow: params.useHannWindow || false,
-          timingSearchWindow: params.useAdvancedTiming ? Math.floor(decoder.config.symbolDuration * audioData.sampleRate * 0.1) : 0
-        })
-      } else {
-        symbols = decoder.toneDetector.extractSymbols(audioSample, 0)
+    const buildSample = data => ({
+      data,
+      sampleRate: audioData.sampleRate,
+      duration: data.length / audioData.sampleRate
+    })
+
+    const runSymbolExtractor = async data => {
+      if (!data || data.length === 0) return null
+      try {
+        decoder.reset()
+
+        const duration = data.length / audioData.sampleRate
+        const startTimeRange = {
+          start: 0,
+          end: Math.max(0.05, Math.min(duration, Math.max(0.5, duration * 0.75))),
+          step: 0.02
+        }
+
+        const candidate = await decoder.decodeAudioDataWithSymbolExtractor(
+          data,
+          audioData.sampleRate,
+          { startTimeRange }
+        )
+
+        if (!candidate) return null
+
+        const sample = buildSample(data)
+        const info = decoder.getLastSymbolExtractorInfo()
+        return {
+          frame: candidate,
+          symbols: getSymbols(sample),
+          frequencySet: info?.frequencySet ?? null
+        }
+      } catch (error) {
+        console.error('Microphone extractor attempt failed:', error)
+        return null
       }
     }
 
-    return { frame, symbols, startTime }
+    let frame = null
+    let symbols = []
+    let frequencySet = null
+    let extractorInput = workingData
+    let extractorAttemptedTrimmed = false
+    let extractorAttemptedOriginal = workingData === audioData.data
+    let startTimeTrimmed = null
+
+    if (preferExtractor) {
+      const extractorResult = await runSymbolExtractor(workingData)
+      extractorAttemptedTrimmed = true
+
+      if (extractorResult) {
+        frame = extractorResult.frame
+        symbols = extractorResult.symbols
+        frequencySet = extractorResult.frequencySet ?? frequencySet
+      }
+    }
+
+    if (!frame) {
+      decoder.reset()
+      startTimeTrimmed = decoder.findTransmissionStart(workingData, audioData.sampleRate)
+
+      if (startTimeTrimmed !== null) {
+        let decodeStartMs = startTimeTrimmed
+        if (audioData.sampleRate >= 47000) {
+          decodeStartMs += 300
+        }
+
+        const startSeconds = decodeStartMs / 1000
+        const offsetIndex = Math.floor(startSeconds * audioData.sampleRate)
+        const offsetData = workingData.slice(offsetIndex)
+
+        extractorInput = offsetData
+
+        const currentChunkSize = params.chunkSizeMs || chunkSizeMs
+        frame = await decoder.processAudioComplete(offsetData, audioData.sampleRate, currentChunkSize)
+
+        symbols = getSymbols(buildSample(offsetData))
+      } else {
+        const currentChunkSize = params.chunkSizeMs || chunkSizeMs
+        frame = await decoder.processAudioComplete(workingData, audioData.sampleRate, currentChunkSize)
+
+        extractorInput = workingData
+        symbols = getSymbols(buildSample(workingData))
+      }
+    }
+
+    if (!frame || !frame.isValid) {
+      if (extractorInput !== workingData && extractorInput.length > 0) {
+        const offsetResult = await runSymbolExtractor(extractorInput)
+        if (offsetResult) {
+          frame = offsetResult.frame
+          symbols = offsetResult.symbols
+          frequencySet = offsetResult.frequencySet ?? frequencySet
+        }
+      }
+
+      if ((!frame || !frame.isValid) && !extractorAttemptedTrimmed) {
+        const trimmedResult = await runSymbolExtractor(workingData)
+        extractorAttemptedTrimmed = true
+
+        if (trimmedResult) {
+          frame = trimmedResult.frame
+          symbols = trimmedResult.symbols
+          frequencySet = trimmedResult.frequencySet ?? frequencySet
+        }
+      }
+
+      if ((!frame || !frame.isValid) && !extractorAttemptedOriginal) {
+        const fullResult = await runSymbolExtractor(audioData.data)
+        extractorAttemptedOriginal = true
+
+        if (fullResult) {
+          frame = fullResult.frame
+          symbols = fullResult.symbols
+          frequencySet = fullResult.frequencySet ?? frequencySet
+        }
+      }
+    }
+
+    const adjustedStartTime =
+      startTimeTrimmed !== null
+        ? startTimeTrimmed + leadPaddingMs
+        : leadPaddingMs > 0
+          ? leadPaddingMs
+          : null
+
+    return { frame, symbols, startTime: adjustedStartTime, frequencySet }
   }
 
   async function tryTolerantDecode(audioData, decoder, params = {}) {
     // Implementation based on integration test tolerant validation
     const { CanonicalTritDecoder } = await import('@fesk/utils/canonicalTritDecoder')
+
+    const { data: trimmedData, leadPaddingMs } = trimSilence(audioData.data, audioData.sampleRate)
+    const workingData = trimmedData.length > 0 ? trimmedData : audioData.data
+
+    decoder.reset()
+
+    const extractorFrame = await decoder.decodeAudioDataWithSymbolExtractor(
+      workingData,
+      audioData.sampleRate
+    )
+
+    if (extractorFrame && extractorFrame.isValid) {
+      const info = decoder.getLastSymbolExtractorInfo()
+      const fallbackSample = {
+        data: workingData,
+        sampleRate: audioData.sampleRate,
+        duration: workingData.length / audioData.sampleRate
+      }
+      const symbols = decoder.toneDetector.extractSymbols(fallbackSample, 0)
+
+      return {
+        frame: extractorFrame,
+        symbols,
+        startTime: leadPaddingMs > 0 ? leadPaddingMs : null,
+        frequencySet: info?.frequencySet ?? null
+      }
+    }
 
     // Try multiple timing approaches like in the integration tests
     const testStartTimes = [0.6, 1.0, 1.5, 2.0] // Different possible start times in seconds
@@ -429,9 +549,9 @@
       for (const symbolDurationMs of symbolDurations) {
         try {
           const startSample = Math.floor(startTime * audioData.sampleRate)
-          if (startSample >= audioData.data.length) continue
+          if (startSample >= workingData.length) continue
 
-          const offsetData = audioData.data.slice(startSample)
+          const offsetData = workingData.slice(startSample)
           const audioSample = {
             data: offsetData,
             sampleRate: audioData.sampleRate,
@@ -459,7 +579,8 @@
             return {
               frame: result.frame,
               symbols,
-              startTime: startTime * 1000
+              startTime: startTime * 1000 + leadPaddingMs,
+              frequencySet: decoder.getLastSymbolExtractorInfo()?.frequencySet ?? null
             }
           }
         } catch (error) {
@@ -470,7 +591,24 @@
     }
 
     // If no tolerant decode worked, fall back to standard
-    return await tryStandardDecode(audioData, decoder)
+    const standard = await tryStandardDecode(
+      {
+        ...audioData,
+        data: workingData,
+        duration: workingData.length / audioData.sampleRate
+      },
+      decoder,
+      params
+    )
+
+    if (standard && standard.frequencySet == null) {
+      const info = decoder.getLastSymbolExtractorInfo()
+      if (info) {
+        standard.frequencySet = info.frequencySet
+      }
+    }
+
+    return standard
   }
 
   async function tryTolerantSymbolDecode(symbols) {

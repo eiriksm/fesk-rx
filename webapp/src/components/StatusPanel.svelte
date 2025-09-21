@@ -29,7 +29,11 @@
   <div class="card-body">
     <div class="flex items-center justify-between">
       <div class="flex items-center space-x-3">
-        <span class="text-2xl animate-pulse">{statusIcon}</span>
+        {#if status === 'processing'}
+          <div class="spinner" aria-hidden="true"></div>
+        {:else}
+          <span class="text-2xl">{statusIcon}</span>
+        {/if}
         <div>
           <h3 class="font-semibold {statusColor}">
             {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -52,3 +56,23 @@
     </div>
   </div>
 </div>
+
+<style>
+  .spinner {
+    width: 28px;
+    height: 28px;
+    border-radius: 9999px;
+    border: 4px solid #d1d5db;
+    border-top-color: #2563eb;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+</style>
