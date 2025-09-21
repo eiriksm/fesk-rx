@@ -53,6 +53,12 @@ interface PreambleCandidate {
   score: number;
 }
 
+interface SymbolExtractorTelemetry {
+  frequencySet: string;
+  symbolDuration: number;
+  startTime: number;
+}
+
 /**
  * Complete FESK decoder implementing the new TX format
  */
@@ -67,6 +73,7 @@ export class FeskDecoder {
   private timingOptimized: boolean = false;
   private activeSymbolDuration!: number;
   private baseToneFrequencies: [number, number, number];
+  private lastSymbolExtractorInfo: SymbolExtractorTelemetry | null = null;
 
   constructor(config: FeskConfig = DEFAULT_CONFIG) {
     this.config = {
@@ -286,6 +293,7 @@ export class FeskDecoder {
       }
     }
 
+    this.lastSymbolExtractorInfo = null;
     return null;
   }
 
@@ -379,6 +387,24 @@ export class FeskDecoder {
       audio.sampleRate,
       options,
     );
+  }
+
+  /**
+   * Decode audio buffers directly using the symbol extractor pipeline
+   * mirrored in hardware integration tests.
+   */
+  async decodeAudioDataWithSymbolExtractor(
+    audioData: Float32Array,
+    sampleRate: number,
+    options: SymbolExtractorDecodeOptions = {},
+  ): Promise<Frame | null> {
+    return this.decodeWithSymbolExtractor(audioData, sampleRate, options);
+  }
+
+  getLastSymbolExtractorInfo(): SymbolExtractorTelemetry | null {
+    return this.lastSymbolExtractorInfo
+      ? { ...this.lastSymbolExtractorInfo }
+      : null;
   }
 
   /**
@@ -2006,6 +2032,7 @@ export class FeskDecoder {
     sampleRate: number,
     options: SymbolExtractorDecodeOptions = {},
   ): Promise<Frame | null> {
+    this.lastSymbolExtractorInfo = null;
     const baseFrequencySets = this.getSymbolExtractorFrequencySets();
     const isLowerSampleRate = sampleRate <= 46000;
 
@@ -2092,6 +2119,7 @@ export class FeskDecoder {
     }
 
     if (topCandidates.length === 0) {
+      this.lastSymbolExtractorInfo = null;
       return null;
     }
 
@@ -2174,6 +2202,11 @@ export class FeskDecoder {
 
             let result = this.decodeSymbolsStandalone(candidateSequence);
             if (result.frame && result.frame.isValid) {
+              this.lastSymbolExtractorInfo = {
+                frequencySet: refinedCandidate.frequencySet.name,
+                symbolDuration: refinedCandidate.symbolDuration,
+                startTime: refinedCandidate.startTime,
+              };
               return result.frame;
             }
 
@@ -2186,6 +2219,11 @@ export class FeskDecoder {
                   : corrected;
               result = this.decodeSymbolsStandalone(correctedSequence);
               if (result.frame && result.frame.isValid) {
+                this.lastSymbolExtractorInfo = {
+                  frequencySet: refinedCandidate.frequencySet.name,
+                  symbolDuration: refinedCandidate.symbolDuration,
+                  startTime: refinedCandidate.startTime,
+                };
                 return result.frame;
               }
             }
