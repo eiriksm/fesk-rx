@@ -1,5 +1,7 @@
 // Integration tests for FESK decoding
 
+import { WavReader } from "../utils/wavReader";
+
 jest.setTimeout(180000);
 
 /**

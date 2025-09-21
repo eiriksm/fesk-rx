@@ -396,6 +396,15 @@ export class FeskDecoder {
     const windowSize = Math.floor(sampleRate * 0.025); // 25ms windows for better stability
     const stepSize = Math.floor(sampleRate * 0.005); // 5ms steps
 
+    const stepDurationMs = (stepSize / sampleRate) * 1000;
+    const requiredHighDurationMs = 80; // Require sustained energy for 80ms
+    const requiredConsecutiveWindows = Math.max(
+      1,
+      Math.ceil(requiredHighDurationMs / stepDurationMs),
+    );
+
+    let consecutiveHigh = 0;
+
     for (let i = 0; i < audioData.length - windowSize; i += stepSize) {
       const chunk = audioData.slice(i, i + windowSize);
 
@@ -406,16 +415,23 @@ export class FeskDecoder {
       }
       energy = Math.sqrt(energy / chunk.length);
 
-      // If energy exceeds threshold, this is the start
       if (energy > energyThreshold) {
+        consecutiveHigh++;
+      } else {
+        consecutiveHigh = Math.max(0, consecutiveHigh - 1);
+      }
+
+      if (consecutiveHigh >= requiredConsecutiveWindows) {
+        const signalIndex = i - (consecutiveHigh - 1) * stepSize;
+
         // Found signal, now back up to find the actual onset
         // Look backward for the point where energy first rises significantly
-        const backtrackSteps = Math.floor((0.1 * sampleRate) / stepSize); // Look back ~100ms
-        let bestStart = i;
+        const backtrackSteps = Math.floor((0.12 * sampleRate) / stepSize); // Look back ~120ms
+        let bestStart = signalIndex;
 
         for (
-          let j = Math.max(0, i - backtrackSteps * stepSize);
-          j <= i;
+          let j = Math.max(0, signalIndex - backtrackSteps * stepSize);
+          j <= signalIndex;
           j += stepSize
         ) {
           const testChunk = audioData.slice(j, j + windowSize);
@@ -427,7 +443,6 @@ export class FeskDecoder {
 
           // Look for the first significant rise above noise floor
           if (testEnergy > energyThreshold * 0.3) {
-            // 30% of threshold as noise floor
             bestStart = j;
             break;
           }
