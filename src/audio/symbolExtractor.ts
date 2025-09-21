@@ -293,7 +293,8 @@ export class SymbolExtractor {
 
       for (const offset of offsets) {
         const centerTime =
-          candidate.startTime + i * candidate.symbolDuration +
+          candidate.startTime +
+          i * candidate.symbolDuration +
           candidate.symbolDuration / 2 +
           offset;
         const detection = this.detectSingleSymbol(

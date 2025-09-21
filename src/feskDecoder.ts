@@ -14,23 +14,11 @@ import {
   SymbolExtractionCandidate,
 } from "./audio/symbolExtractor";
 
-const HARDWARE_TONE_FREQUENCIES: [number, number, number] = [
-  1200,
-  1600,
-  2000,
-];
+const HARDWARE_TONE_FREQUENCIES: [number, number, number] = [1200, 1600, 2000];
 
-const ALIASED_TONE_FREQUENCIES: [number, number, number] = [
-  4630,
-  9560,
-  14060,
-];
+const ALIASED_TONE_FREQUENCIES: [number, number, number] = [4630, 9560, 14060];
 
-const HIGH_ALIASED_TONES: [number, number, number] = [
-  5525,
-  9188,
-  14062,
-];
+const HIGH_ALIASED_TONES: [number, number, number] = [5525, 9188, 14062];
 
 export interface SymbolExtractorDecodeOptions {
   frequencySets?: ToneFrequencySet[];
@@ -83,11 +71,7 @@ export class FeskDecoder {
   constructor(config: FeskConfig = DEFAULT_CONFIG) {
     this.config = {
       ...config,
-      toneFrequencies: [...config.toneFrequencies] as [
-        number,
-        number,
-        number,
-      ],
+      toneFrequencies: [...config.toneFrequencies] as [number, number, number],
       preambleBits: [...config.preambleBits],
       barker13: [...config.barker13],
       pilotSequence: [...config.pilotSequence] as [number, number],
@@ -390,7 +374,11 @@ export class FeskDecoder {
   ): Promise<Frame | null> {
     const { WavReader } = await import("./utils/wavReader");
     const audio = await WavReader.readWavFile(wavPath);
-    return this.decodeWithSymbolExtractor(audio.data, audio.sampleRate, options);
+    return this.decodeWithSymbolExtractor(
+      audio.data,
+      audio.sampleRate,
+      options,
+    );
   }
 
   /**
@@ -1258,8 +1246,14 @@ export class FeskDecoder {
         1,
         Math.floor(candidate.symbolDuration * sampleRate),
       );
-      const preBufferSamples = Math.min(symbolSamples * 2, candidate.startSample);
-      const offsetSamples = Math.max(candidate.startSample - preBufferSamples, 0);
+      const preBufferSamples = Math.min(
+        symbolSamples * 2,
+        candidate.startSample,
+      );
+      const offsetSamples = Math.max(
+        candidate.startSample - preBufferSamples,
+        0,
+      );
       const key = `${offsetSamples}-${candidate.symbolDuration.toFixed(6)}`;
 
       if (seenKeys.has(key)) continue;
@@ -1637,7 +1631,10 @@ export class FeskDecoder {
     for (let i = 0; i < maxCandidates; i++) {
       const candidate = candidates[i];
       const symbolDuration = candidate.symbolDuration;
-      const symbolSamples = Math.max(1, Math.floor(symbolDuration * sampleRate));
+      const symbolSamples = Math.max(
+        1,
+        Math.floor(symbolDuration * sampleRate),
+      );
 
       const adjustmentSamples = Math.max(1, Math.floor(symbolSamples * 0.25));
       const halfAdjustment = Math.max(1, Math.floor(adjustmentSamples / 2));
@@ -1691,8 +1688,7 @@ export class FeskDecoder {
         const preambleIndex = this.findPreambleInSymbols(symbols);
         if (preambleIndex >= 0) {
           const trimmedSymbols = symbols.slice(preambleIndex);
-          const trimmedResult =
-            this.decodeCompleteTransmission(trimmedSymbols);
+          const trimmedResult = this.decodeCompleteTransmission(trimmedSymbols);
           if (trimmedResult.frame && trimmedResult.frame.isValid) {
             return trimmedResult.frame;
           }
@@ -2016,26 +2012,23 @@ export class FeskDecoder {
         [
           ...this.collectCandidateSymbolDurations(),
           ...(options.symbolDurations || defaultSymbolDurations),
-        ].map(
-          (value) => Number(value.toFixed(6)),
-        ),
+        ].map((value) => Number(value.toFixed(6))),
       ),
     ).sort((a, b) => a - b);
 
     const audioDuration = audioData.length / sampleRate;
-    const startBase = Math.min(audioDuration - 0.5, Math.max(0, audioDuration * 0.08));
-    let startTimeRange: StartTimeRange =
-      options.startTimeRange || {
-        start: Math.max(0, startBase - 0.6),
-        end: Math.min(audioDuration - 0.25, startBase + 5.5),
-        step: 0.02,
-      };
+    const startBase = Math.min(
+      audioDuration - 0.5,
+      Math.max(0, audioDuration * 0.08),
+    );
+    let startTimeRange: StartTimeRange = options.startTimeRange || {
+      start: Math.max(0, startBase - 0.6),
+      end: Math.min(audioDuration - 0.25, startBase + 5.5),
+      step: 0.02,
+    };
 
     if (!options.startTimeRange) {
-      const detectedStart = this.findTransmissionStart(
-        audioData,
-        sampleRate,
-      );
+      const detectedStart = this.findTransmissionStart(audioData, sampleRate);
       if (detectedStart !== null) {
         const detectedSeconds = detectedStart / 1000;
         startTimeRange = {
@@ -2060,10 +2053,7 @@ export class FeskDecoder {
 
     const topCandidates: SymbolExtractionCandidate[] = [];
 
-    const overallCandidate = extractor.findBestCandidate(
-      audioData,
-      sampleRate,
-    );
+    const overallCandidate = extractor.findBestCandidate(audioData, sampleRate);
     if (overallCandidate) {
       topCandidates.push(overallCandidate);
     }
@@ -2112,7 +2102,10 @@ export class FeskDecoder {
       for (const offset of candidateOffsets) {
         if (offset === 0) continue;
         const startTime = startRefinedCandidate.startTime + offset;
-        if (startTime < startTimeRange.start || startTime > startTimeRange.end) {
+        if (
+          startTime < startTimeRange.start ||
+          startTime > startTimeRange.end
+        ) {
           continue;
         }
 
@@ -2143,7 +2136,7 @@ export class FeskDecoder {
         this.setSymbolDuration(refinedCandidate.symbolDuration);
 
         try {
-          let workingSymbols = [...refinedCandidate.mappedSymbols];
+          const workingSymbols = [...refinedCandidate.mappedSymbols];
 
           while (
             workingSymbols.length > 0 &&
@@ -2173,7 +2166,9 @@ export class FeskDecoder {
             if (corrected) {
               const correctedIndex = this.findPreambleInSymbols(corrected);
               const correctedSequence =
-                correctedIndex > 0 ? corrected.slice(correctedIndex) : corrected;
+                correctedIndex > 0
+                  ? corrected.slice(correctedIndex)
+                  : corrected;
               result = this.decodeSymbolsStandalone(correctedSequence);
               if (result.frame && result.frame.isValid) {
                 return result.frame;

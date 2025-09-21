@@ -77,7 +77,6 @@ describe("FESK Integration Tests", () => {
   describe("Wav decoding tests", () => {
     it('Should decode "test" from wav file fesk1.wav', async () => {
       const { FeskDecoder } = await import("../feskDecoder");
-      const { WavReader } = await import("../utils/wavReader");
       const path = require("path");
 
       const wavPath = path.join(__dirname, "../../testdata/fesk1.wav");
@@ -108,7 +107,6 @@ describe("FESK Integration Tests", () => {
     });
     it("Should decode the message from fesk2.wav", async () => {
       const { FeskDecoder } = await import("../feskDecoder");
-      const { WavReader } = await import("../utils/wavReader");
       const path = require("path");
 
       const wavPath = path.join(__dirname, "../../testdata/fesk2.wav");
@@ -138,7 +136,6 @@ describe("FESK Integration Tests", () => {
     });
     it("Should decode the message from fesk3.wav", async () => {
       const { FeskDecoder } = await import("../feskDecoder");
-      const { WavReader } = await import("../utils/wavReader");
       const path = require("path");
 
       const wavPath = path.join(__dirname, "../../testdata/fesk3.wav");
@@ -174,7 +171,6 @@ describe("FESK Integration Tests", () => {
   describe("Hardware wav decoding", () => {
     it('should decode "test" from fesk1mp.wav', async () => {
       const { FeskDecoder } = await import("../feskDecoder");
-      const { WavReader } = await import("../utils/wavReader");
       const path = require("path");
 
       const wavPath = path.join(__dirname, "../../testdata/fesk1mp.wav");
