@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte'
-  import { trimSilence } from '../utils/audio'
+  import { trimSilence, audioBufferToWav } from '../utils/audio'
 
   const dispatch = createEventDispatcher()
 
@@ -17,6 +17,8 @@
   let recordingInterval = null
   let currentVolume = 0
   let volumeInterval = null
+  let downloadUrl = null
+  let downloadFilename = ''
 
   // Auto-decode after recording
   let autoDecodeEnabled = true
@@ -35,6 +37,14 @@
   let useHannWindow = false
   let confidenceThreshold = 0.3
   let strengthThreshold = 0.001
+
+  function revokeDownloadUrl() {
+    if (downloadUrl) {
+      URL.revokeObjectURL(downloadUrl)
+      downloadUrl = null
+    }
+    downloadFilename = ''
+  }
 
   async function requestMicrophoneAccess() {
     try {
@@ -93,6 +103,8 @@
     const success = await requestMicrophoneAccess()
     if (!success) return
 
+    revokeDownloadUrl()
+
     recordedChunks = []
     recordingTime = 0
     isRecording = true
@@ -109,8 +121,10 @@
     }
 
     mediaRecorder.onstop = async () => {
+      const timestamp = Date.now()
+      const baseName = `recording-${timestamp}`
       const blob = new Blob(recordedChunks, { type: 'audio/webm' })
-      const file = new File([blob], `recording-${Date.now()}.webm`, { type: 'audio/webm' })
+      const file = new File([blob], `${baseName}.webm`, { type: 'audio/webm' })
 
       try {
         // Create a new audio context for processing since we might have closed the old one
@@ -125,6 +139,11 @@
           sampleRate: audioBuffer.sampleRate,
           duration: audioBuffer.duration
         }
+
+        const wavBlob = audioBufferToWav(audioBuffer)
+        revokeDownloadUrl()
+        downloadFilename = `${baseName}.wav`
+        downloadUrl = URL.createObjectURL(wavBlob)
 
         // Close the processing context
         processingContext.close()
@@ -703,6 +722,7 @@
     stopVolumeMonitoring()
 
     isRecording = false
+    revokeDownloadUrl()
   }
 
   onDestroy(cleanup)
@@ -910,6 +930,24 @@
               🔄 Retry Decode
             {/if}
           </button>
+        </div>
+      {/if}
+
+      {#if downloadUrl}
+        <div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
+          <div>
+            <h4 class="font-medium text-purple-900">Download Recording</h4>
+            <p class="text-sm text-purple-700">
+              Save the most recent capture as an uncompressed WAV file
+            </p>
+          </div>
+          <a
+            class="btn btn-secondary"
+            href={downloadUrl}
+            download={downloadFilename || 'recording.wav'}
+          >
+            ⬇️ Download WAV
+          </a>
         </div>
       {/if}
     </div>
