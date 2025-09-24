@@ -263,6 +263,19 @@
       dispatch('decodeError', { error: `Failed to load sample: ${error.message}` })
     }
   }
+
+  function triggerFileDialog() {
+    if (!disabled && fileInput) {
+      fileInput.click()
+    }
+  }
+
+  function handleDropZoneKeydown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      triggerFileDialog()
+    }
+  }
 </script>
 
 <div class="card">
@@ -279,7 +292,8 @@
       on:drop={handleDrop}
       on:dragover={handleDragOver}
       on:dragleave={handleDragLeave}
-      on:click={() => !disabled && fileInput.click()}
+      on:click={triggerFileDialog}
+      on:keydown={handleDropZoneKeydown}
       role="button"
       tabindex="0"
     >
