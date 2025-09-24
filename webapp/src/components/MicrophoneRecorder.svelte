@@ -38,6 +38,9 @@
   let confidenceThreshold = 0.3
   let strengthThreshold = 0.001
 
+  const FAST_SYMBOL_DURATIONS = [0.098, 0.1, 0.102]
+  const DEFAULT_FREQUENCY_SET: [number, number, number] = [2793.83, 3520, 4698.63]
+
   function revokeDownloadUrl() {
     if (downloadUrl) {
       URL.revokeObjectURL(downloadUrl)
@@ -382,7 +385,7 @@
   }
 
   async function tryStandardDecode(audioData, decoder, params = {}) {
-    const preferExtractor = audioData.sampleRate >= 47000
+    const preferExtractor = true
     const useAdvanced = params.useAdvancedTiming || params.useParametricGoertzel || params.useHannWindow
 
     const getSymbols = sample => {
@@ -407,8 +410,7 @@
 
     const usingTrimmedOverride = Boolean(params.__micUseTrimmed)
     const leadPaddingOverride = params.leadPaddingOverride ?? null
-    const shouldUseTrimmedInitially =
-      usingTrimmedOverride || (trimmedAvailable && trimmedLeadPaddingMs <= 400)
+    const shouldUseTrimmedInitially = usingTrimmedOverride
 
     let workingData = shouldUseTrimmedInitially ? trimmedData : audioData.data
     let leadPaddingMs = shouldUseTrimmedInitially
@@ -421,22 +423,45 @@
       duration: data.length / audioData.sampleRate
     })
 
-    const runSymbolExtractor = async data => {
+    const runSymbolExtractor = async (data, mode = 'full') => {
       if (!data || data.length === 0) return null
       try {
         decoder.reset()
 
         const duration = data.length / audioData.sampleRate
-        const startTimeRange = {
+        const fastRange = {
+          start: 0,
+          end: Math.max(0.3, Math.min(duration, 1.2)),
+          step: 0.04
+        }
+        const fullRange = {
           start: 0,
           end: Math.max(0.05, Math.min(duration, Math.max(0.5, duration * 0.75))),
           step: 0.02
         }
 
+        const startTimeRange = mode === 'fast' ? fastRange : fullRange
+
+        const extractorOptions =
+          mode === 'fast'
+            ? {
+                startTimeRange,
+                frequencySets: [
+                  {
+                    name: 'default-fast',
+                    tones: DEFAULT_FREQUENCY_SET
+                  }
+                ],
+                symbolDurations: FAST_SYMBOL_DURATIONS,
+                candidateOffsets: [0],
+                minConfidence: 0.1
+              }
+            : { startTimeRange }
+
         const candidate = await decoder.decodeAudioDataWithSymbolExtractor(
           data,
           audioData.sampleRate,
-          { startTimeRange }
+          extractorOptions
         )
 
         if (!candidate) return null
@@ -461,6 +486,22 @@
     let extractorAttemptedTrimmed = false
     let extractorAttemptedOriginal = false
     let startTimeDetected = null
+
+    const fastExtractor = await runSymbolExtractor(workingData, 'fast')
+    if (fastExtractor) {
+      return {
+        frame: fastExtractor.frame,
+        symbols: fastExtractor.symbols,
+        startTime: leadPaddingMs > 0 ? leadPaddingMs : null,
+        frequencySet: fastExtractor.frequencySet ?? null
+      }
+    }
+
+    if (workingData === trimmedData) {
+      extractorAttemptedTrimmed = true
+    } else {
+      extractorAttemptedOriginal = true
+    }
 
     if (preferExtractor) {
       const extractorResult = await runSymbolExtractor(workingData)
@@ -583,13 +624,14 @@
     const trimmedData = trimResult.data
     const trimmedLeadPaddingMs = trimResult.leadPaddingMs
     const trimmedAvailable = trimmedData.length > 0 && trimmedData.length < audioData.data.length
-    const leadPaddingOverride = params.leadPaddingOverride ?? null
-    const useTrimmed = trimmedAvailable && trimmedLeadPaddingMs <= 400
+    const overrideProvided = Object.prototype.hasOwnProperty.call(params, 'leadPaddingOverride')
+    const leadPaddingOverride = overrideProvided ? params.leadPaddingOverride : null
+    const useTrimmed = overrideProvided ? true : false
 
     const workingData = useTrimmed ? trimmedData : audioData.data
     const leadPaddingMs = useTrimmed
-      ? leadPaddingOverride ?? trimmedLeadPaddingMs
-      : leadPaddingOverride ?? 0
+      ? (leadPaddingOverride ?? trimmedLeadPaddingMs)
+      : (leadPaddingOverride ?? 0)
 
     decoder.reset()
 
