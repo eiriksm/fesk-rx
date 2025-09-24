@@ -53,7 +53,8 @@ export class WavReader {
         sumSquares += value * value;
       }
 
-      const rms = samples.length > 0 ? Math.sqrt(sumSquares / samples.length) : 0;
+      const rms =
+        samples.length > 0 ? Math.sqrt(sumSquares / samples.length) : 0;
       const originalPeak = peak;
       const originalRms = rms;
 

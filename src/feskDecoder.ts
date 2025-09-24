@@ -168,8 +168,8 @@ export class FeskDecoder {
 
     const scaleFactors = [0.985, 0.99, 0.995, 1.005, 1.01, 1.015];
     for (const factor of scaleFactors) {
-      const scaled = this.baseToneFrequencies.map(
-        (freq) => Number((freq * factor).toFixed(2)),
+      const scaled = this.baseToneFrequencies.map((freq) =>
+        Number((freq * factor).toFixed(2)),
       ) as [number, number, number];
       frequencySets.push({
         name: `scaled_${factor.toFixed(3)}`,
@@ -2235,7 +2235,10 @@ export class FeskDecoder {
               candidateSequence = candidateSequence.slice(preambleIndex);
             }
 
-            const candidateConfidences = refinedCandidate.confidences.slice(0, end);
+            const candidateConfidences = refinedCandidate.confidences.slice(
+              0,
+              end,
+            );
             let result = this.decodeSymbolsStandalone(candidateSequence);
             debugCollector?.({
               stage: "raw",
@@ -2531,10 +2534,7 @@ export class FeskDecoder {
     const mutationSummary =
       mutationResult.modifications.length > 0
         ? mutationResult.modifications
-            .map(
-              ({ index, from, to }) =>
-                `${index}:${from}\u2192${to}`,
-            )
+            .map(({ index, from, to }) => `${index}:${from}\u2192${to}`)
             .join(", ")
         : "no symbol changes";
 
