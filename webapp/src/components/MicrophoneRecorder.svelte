@@ -396,8 +396,24 @@
       return decoder.toneDetector.extractSymbols(sample, 0)
     }
 
-    const { data: trimmedData, leadPaddingMs } = trimSilence(audioData.data, audioData.sampleRate)
-    const workingData = trimmedData.length > 0 ? trimmedData : audioData.data
+    const trimResult = trimSilence(audioData.data, audioData.sampleRate, {
+      threshold: 0.0012,
+      paddingMs: 150,
+      minActiveMs: 60
+    })
+    const trimmedData = trimResult.data
+    const trimmedLeadPaddingMs = trimResult.leadPaddingMs
+    const trimmedAvailable = trimmedData.length > 0 && trimmedData.length < audioData.data.length
+
+    const usingTrimmedOverride = Boolean(params.__micUseTrimmed)
+    const leadPaddingOverride = params.leadPaddingOverride ?? null
+    const shouldUseTrimmedInitially =
+      usingTrimmedOverride || (trimmedAvailable && trimmedLeadPaddingMs <= 400)
+
+    let workingData = shouldUseTrimmedInitially ? trimmedData : audioData.data
+    let leadPaddingMs = shouldUseTrimmedInitially
+      ? leadPaddingOverride ?? trimmedLeadPaddingMs
+      : 0
 
     const buildSample = data => ({
       data,
@@ -443,12 +459,16 @@
     let frequencySet = null
     let extractorInput = workingData
     let extractorAttemptedTrimmed = false
-    let extractorAttemptedOriginal = workingData === audioData.data
-    let startTimeTrimmed = null
+    let extractorAttemptedOriginal = false
+    let startTimeDetected = null
 
     if (preferExtractor) {
       const extractorResult = await runSymbolExtractor(workingData)
-      extractorAttemptedTrimmed = true
+      if (workingData === trimmedData) {
+        extractorAttemptedTrimmed = true
+      } else {
+        extractorAttemptedOriginal = true
+      }
 
       if (extractorResult) {
         frame = extractorResult.frame
@@ -459,10 +479,10 @@
 
     if (!frame) {
       decoder.reset()
-      startTimeTrimmed = decoder.findTransmissionStart(workingData, audioData.sampleRate)
+      startTimeDetected = decoder.findTransmissionStart(workingData, audioData.sampleRate)
 
-      if (startTimeTrimmed !== null) {
-        let decodeStartMs = startTimeTrimmed
+      if (startTimeDetected !== null) {
+        let decodeStartMs = startTimeDetected
         if (audioData.sampleRate >= 47000) {
           decodeStartMs += 300
         }
@@ -496,14 +516,18 @@
         }
       }
 
-      if ((!frame || !frame.isValid) && !extractorAttemptedTrimmed) {
-        const trimmedResult = await runSymbolExtractor(workingData)
+      if ((!frame || !frame.isValid) && !extractorAttemptedTrimmed && trimmedAvailable) {
+        const trimmedResult = await runSymbolExtractor(trimmedData)
         extractorAttemptedTrimmed = true
 
         if (trimmedResult) {
           frame = trimmedResult.frame
           symbols = trimmedResult.symbols
           frequencySet = trimmedResult.frequencySet ?? frequencySet
+          workingData = trimmedData
+          leadPaddingMs = trimmedLeadPaddingMs
+          extractorInput = trimmedData
+          startTimeDetected = null
         }
       }
 
@@ -515,13 +539,31 @@
           frame = fullResult.frame
           symbols = fullResult.symbols
           frequencySet = fullResult.frequencySet ?? frequencySet
+          workingData = audioData.data
+          leadPaddingMs = 0
+          extractorInput = audioData.data
+          startTimeDetected = null
         }
       }
     }
 
+    if ((!frame || !frame.isValid) && trimmedAvailable && !shouldUseTrimmedInitially) {
+      const trimmedAudioData = {
+        ...audioData,
+        data: trimmedData,
+        duration: trimmedData.length / audioData.sampleRate
+      }
+
+      return await tryStandardDecode(trimmedAudioData, decoder, {
+        ...params,
+        __micUseTrimmed: true,
+        leadPaddingOverride: trimmedLeadPaddingMs
+      })
+    }
+
     const adjustedStartTime =
-      startTimeTrimmed !== null
-        ? startTimeTrimmed + leadPaddingMs
+      startTimeDetected !== null
+        ? startTimeDetected + leadPaddingMs
         : leadPaddingMs > 0
           ? leadPaddingMs
           : null
@@ -533,8 +575,21 @@
     // Implementation based on integration test tolerant validation
     const { CanonicalTritDecoder } = await import('@fesk/utils/canonicalTritDecoder')
 
-    const { data: trimmedData, leadPaddingMs } = trimSilence(audioData.data, audioData.sampleRate)
-    const workingData = trimmedData.length > 0 ? trimmedData : audioData.data
+    const trimResult = trimSilence(audioData.data, audioData.sampleRate, {
+      threshold: 0.0012,
+      paddingMs: 150,
+      minActiveMs: 60
+    })
+    const trimmedData = trimResult.data
+    const trimmedLeadPaddingMs = trimResult.leadPaddingMs
+    const trimmedAvailable = trimmedData.length > 0 && trimmedData.length < audioData.data.length
+    const leadPaddingOverride = params.leadPaddingOverride ?? null
+    const useTrimmed = trimmedAvailable && trimmedLeadPaddingMs <= 400
+
+    const workingData = useTrimmed ? trimmedData : audioData.data
+    const leadPaddingMs = useTrimmed
+      ? leadPaddingOverride ?? trimmedLeadPaddingMs
+      : leadPaddingOverride ?? 0
 
     decoder.reset()
 
@@ -625,6 +680,19 @@
       if (info) {
         standard.frequencySet = info.frequencySet
       }
+    }
+
+    if ((!standard || !standard.frame || !standard.frame.isValid) && trimmedAvailable && !useTrimmed) {
+      const trimmedAudioData = {
+        ...audioData,
+        data: trimmedData,
+        duration: trimmedData.length / audioData.sampleRate
+      }
+
+      return await tryTolerantDecode(trimmedAudioData, decoder, {
+        ...params,
+        leadPaddingOverride: trimmedLeadPaddingMs
+      })
     }
 
     return standard
