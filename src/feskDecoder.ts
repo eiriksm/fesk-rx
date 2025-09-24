@@ -28,6 +28,8 @@ export interface SymbolExtractorDecodeOptions {
   windowFraction?: number;
   minConfidence?: number;
   candidateOffsets?: number[];
+  debugCollector?: (info: SymbolExtractorDebugInfo) => void;
+  debugIncludeSequence?: boolean;
 }
 
 export interface DecoderState {
@@ -57,6 +59,22 @@ interface SymbolExtractorTelemetry {
   frequencySet: string;
   symbolDuration: number;
   startTime: number;
+}
+
+export interface SymbolExtractorDebugInfo {
+  stage: "raw" | "corrected" | "mutated";
+  frequencySet: string;
+  symbolDuration: number;
+  startTime: number;
+  candidateEnd: number;
+  sequenceLength: number;
+  preambleValid: boolean;
+  syncValid: boolean;
+  frameValid: boolean;
+  payloadLength: number;
+  errors: string[];
+  score?: number;
+  sequence?: number[];
 }
 
 /**
@@ -133,7 +151,7 @@ export class FeskDecoder {
   }
 
   private getSymbolExtractorFrequencySets(): ToneFrequencySet[] {
-    return [
+    const frequencySets: ToneFrequencySet[] = [
       {
         name: "default",
         tones: [...this.baseToneFrequencies] as [number, number, number],
@@ -147,6 +165,19 @@ export class FeskDecoder {
         tones: [...HIGH_ALIASED_TONES],
       },
     ];
+
+    const scaleFactors = [0.985, 0.99, 0.995, 1.005, 1.01, 1.015];
+    for (const factor of scaleFactors) {
+      const scaled = this.baseToneFrequencies.map((freq) =>
+        Number((freq * factor).toFixed(2)),
+      ) as [number, number, number];
+      frequencySets.push({
+        name: `scaled_${factor.toFixed(3)}`,
+        tones: scaled,
+      });
+    }
+
+    return frequencySets;
   }
 
   /**
@@ -2035,6 +2066,8 @@ export class FeskDecoder {
     this.lastSymbolExtractorInfo = null;
     const baseFrequencySets = this.getSymbolExtractorFrequencySets();
     const isLowerSampleRate = sampleRate <= 46000;
+    const debugCollector = options.debugCollector;
+    const includeSequence = options.debugIncludeSequence ?? false;
 
     const frequencySets =
       options.frequencySets ||
@@ -2084,12 +2117,14 @@ export class FeskDecoder {
     const minConfidence =
       options.minConfidence ?? (isLowerSampleRate ? 0.08 : 0.12);
 
+    const windowFraction = options.windowFraction ?? 0.6;
+
     const extractor = new SymbolExtractor({
       frequencySets,
       symbolDurations,
       startTimeRange,
       symbolsToExtract: options.symbolsToExtract || 90,
-      windowFraction: options.windowFraction || 0.6,
+      windowFraction,
       minConfidence,
     });
 
@@ -2200,7 +2235,26 @@ export class FeskDecoder {
               candidateSequence = candidateSequence.slice(preambleIndex);
             }
 
+            const candidateConfidences = refinedCandidate.confidences.slice(
+              0,
+              end,
+            );
             let result = this.decodeSymbolsStandalone(candidateSequence);
+            debugCollector?.({
+              stage: "raw",
+              frequencySet: refinedCandidate.frequencySet.name,
+              symbolDuration: refinedCandidate.symbolDuration,
+              startTime: refinedCandidate.startTime,
+              candidateEnd: end,
+              sequenceLength: candidateSequence.length,
+              preambleValid: result.preambleValid,
+              syncValid: result.syncValid,
+              frameValid: Boolean(result.frame && result.frame.isValid),
+              payloadLength: result.frame?.payload.length ?? 0,
+              errors: [...result.errors],
+              score: refinedCandidate.score,
+              sequence: includeSequence ? [...candidateSequence] : undefined,
+            });
             if (result.frame && result.frame.isValid) {
               this.lastSymbolExtractorInfo = {
                 frequencySet: refinedCandidate.frequencySet.name,
@@ -2210,6 +2264,23 @@ export class FeskDecoder {
               return result.frame;
             }
 
+            const mutationFromRaw = this.trySymbolMutations(
+              candidateSequence,
+              candidateConfidences,
+              refinedCandidate,
+              audioData,
+              sampleRate,
+              windowFraction,
+              debugCollector,
+              includeSequence,
+              end,
+              "raw",
+              result.errors,
+            );
+            if (mutationFromRaw) {
+              return mutationFromRaw;
+            }
+
             const corrected = this.attemptPatternCorrection(candidateSequence);
             if (corrected) {
               const correctedIndex = this.findPreambleInSymbols(corrected);
@@ -2217,7 +2288,23 @@ export class FeskDecoder {
                 correctedIndex > 0
                   ? corrected.slice(correctedIndex)
                   : corrected;
+              const correctedConfidences = candidateConfidences;
               result = this.decodeSymbolsStandalone(correctedSequence);
+              debugCollector?.({
+                stage: "corrected",
+                frequencySet: refinedCandidate.frequencySet.name,
+                symbolDuration: refinedCandidate.symbolDuration,
+                startTime: refinedCandidate.startTime,
+                candidateEnd: end,
+                sequenceLength: correctedSequence.length,
+                preambleValid: result.preambleValid,
+                syncValid: result.syncValid,
+                frameValid: Boolean(result.frame && result.frame.isValid),
+                payloadLength: result.frame?.payload.length ?? 0,
+                errors: [...result.errors],
+                score: refinedCandidate.score,
+                sequence: includeSequence ? [...correctedSequence] : undefined,
+              });
               if (result.frame && result.frame.isValid) {
                 this.lastSymbolExtractorInfo = {
                   frequencySet: refinedCandidate.frequencySet.name,
@@ -2225,6 +2312,23 @@ export class FeskDecoder {
                   startTime: refinedCandidate.startTime,
                 };
                 return result.frame;
+              }
+
+              const mutationFromCorrected = this.trySymbolMutations(
+                correctedSequence,
+                correctedConfidences,
+                refinedCandidate,
+                audioData,
+                sampleRate,
+                windowFraction,
+                debugCollector,
+                includeSequence,
+                end,
+                "corrected",
+                result.errors,
+              );
+              if (mutationFromCorrected) {
+                return mutationFromCorrected;
               }
             }
           }
@@ -2240,5 +2344,226 @@ export class FeskDecoder {
   private decodeSymbolsStandalone(symbols: number[]) {
     const tempDecoder = new FeskDecoder();
     return tempDecoder.decodeCompleteTransmission(symbols);
+  }
+
+  private trySymbolMutations(
+    baseSequence: number[],
+    confidences: number[],
+    candidate: SymbolExtractionCandidate,
+    audioData: Float32Array,
+    sampleRate: number,
+    windowFraction: number,
+    debugCollector?: (info: SymbolExtractorDebugInfo) => void,
+    includeSequence: boolean = false,
+    candidateEnd: number = baseSequence.length,
+    origin: "raw" | "corrected" = "raw",
+    previousErrors: string[] = [],
+  ): Frame | null {
+    const sequenceLength = baseSequence.length;
+    if (sequenceLength === 0) {
+      return null;
+    }
+
+    const preambleLength = this.config.preambleBits.length;
+    const syncLength = this.config.barker13.length;
+
+    const mutationThreshold = 0.72;
+    const maxPositions = 8;
+    const maxChanges = 6;
+    const maxAlternativesPerIndex = 3;
+
+    const candidateIndices: { index: number; confidence: number }[] = [];
+    for (let i = preambleLength + syncLength; i < sequenceLength; i++) {
+      const confidence = confidences[i] ?? 0;
+      if (confidence < mutationThreshold) {
+        candidateIndices.push({ index: i, confidence });
+      }
+    }
+
+    if (candidateIndices.length === 0) {
+      return null;
+    }
+
+    candidateIndices.sort((a, b) => a.confidence - b.confidence);
+    const selectedIndices = candidateIndices.slice(0, maxPositions);
+
+    const symbolSamples = Math.max(
+      1,
+      Math.floor(candidate.symbolDuration * sampleRate),
+    );
+    const windowSamples = Math.max(
+      Math.floor(symbolSamples * windowFraction),
+      Math.floor(sampleRate * 0.04),
+    );
+    const halfWindow = Math.floor(windowSamples / 2);
+
+    interface MutationOption {
+      symbol: number;
+      confidence: number;
+    }
+
+    interface MutationEntry {
+      index: number;
+      options: MutationOption[];
+    }
+
+    const mutationEntries: MutationEntry[] = [];
+
+    for (const { index } of selectedIndices) {
+      const centerTime =
+        candidate.startTime +
+        index * candidate.symbolDuration +
+        candidate.symbolDuration / 2;
+      const centerSample = Math.floor(centerTime * sampleRate);
+      const windowStart = centerSample - halfWindow;
+      const windowEnd = windowStart + windowSamples;
+
+      if (windowStart < 0 || windowEnd >= audioData.length) {
+        continue;
+      }
+
+      const segment = audioData.slice(windowStart, windowEnd);
+      const strengths = candidate.frequencySet.tones.map((tone) =>
+        Goertzel.getFrequencyStrengthParametric(segment, tone, sampleRate),
+      );
+      const totalStrength = strengths.reduce((sum, value) => sum + value, 0);
+      if (!(totalStrength > 0)) {
+        continue;
+      }
+
+      const dedup = new Map<number, number>();
+      for (let raw = 0; raw < strengths.length; raw++) {
+        const mappedSymbol = candidate.mapping[raw];
+        const confidence = strengths[raw] / totalStrength;
+        const existing = dedup.get(mappedSymbol);
+        if (existing === undefined || confidence > existing) {
+          dedup.set(mappedSymbol, confidence);
+        }
+      }
+
+      let options = Array.from(dedup.entries())
+        .map(([symbol, confidence]) => ({ symbol, confidence }))
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, maxAlternativesPerIndex);
+
+      const originalSymbol = baseSequence[index];
+      if (!options.some((option) => option.symbol === originalSymbol)) {
+        options = [
+          { symbol: originalSymbol, confidence: confidences[index] ?? 0 },
+          ...options,
+        ];
+      }
+
+      options = options
+        .reduce<MutationOption[]>((acc, option) => {
+          if (!acc.some((item) => item.symbol === option.symbol)) {
+            acc.push(option);
+          }
+          return acc;
+        }, [])
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, maxAlternativesPerIndex);
+
+      if (options.length > 1) {
+        mutationEntries.push({ index, options });
+      }
+    }
+
+    if (mutationEntries.length === 0) {
+      return null;
+    }
+
+    const workingSequence = [...baseSequence];
+
+    const search = (
+      position: number,
+      appliedChanges: number,
+    ): {
+      frame: Frame;
+      sequence: number[];
+      errors: string[];
+      modifications: { index: number; from: number; to: number }[];
+    } | null => {
+      if (position >= mutationEntries.length) {
+        const decodeResult = this.decodeCompleteTransmission(workingSequence);
+        if (decodeResult.frame && decodeResult.frame.isValid) {
+          const finalSequence = [...workingSequence];
+          const modifications = mutationEntries
+            .map(({ index }) => index)
+            .filter((index) => baseSequence[index] !== finalSequence[index])
+            .map((index) => ({
+              index,
+              from: baseSequence[index],
+              to: finalSequence[index],
+            }));
+          return {
+            frame: decodeResult.frame,
+            sequence: finalSequence,
+            errors: decodeResult.errors,
+            modifications,
+          };
+        }
+        return null;
+      }
+
+      const entry = mutationEntries[position];
+      const originalSymbol = baseSequence[entry.index];
+
+      for (const option of entry.options) {
+        const additionalChanges = option.symbol === originalSymbol ? 0 : 1;
+        if (appliedChanges + additionalChanges > maxChanges) {
+          continue;
+        }
+
+        workingSequence[entry.index] = option.symbol;
+        const result = search(position + 1, appliedChanges + additionalChanges);
+        if (result) {
+          return result;
+        }
+      }
+
+      workingSequence[entry.index] = originalSymbol;
+      return null;
+    };
+
+    const mutationResult = search(0, 0);
+    if (!mutationResult) {
+      return null;
+    }
+
+    const mutationSummary =
+      mutationResult.modifications.length > 0
+        ? mutationResult.modifications
+            .map(({ index, from, to }) => `${index}:${from}\u2192${to}`)
+            .join(", ")
+        : "no symbol changes";
+
+    debugCollector?.({
+      stage: "mutated",
+      frequencySet: candidate.frequencySet.name,
+      symbolDuration: candidate.symbolDuration,
+      startTime: candidate.startTime,
+      candidateEnd,
+      sequenceLength: mutationResult.sequence.length,
+      preambleValid: true,
+      syncValid: true,
+      frameValid: mutationResult.frame.isValid,
+      payloadLength: mutationResult.frame.payload.length,
+      errors: [
+        ...previousErrors,
+        `mutation origin: ${origin}`,
+        `mutations: ${mutationSummary}`,
+      ],
+      score: undefined,
+      sequence: includeSequence ? [...mutationResult.sequence] : undefined,
+    });
+
+    this.lastSymbolExtractorInfo = {
+      frequencySet: candidate.frequencySet.name,
+      symbolDuration: candidate.symbolDuration,
+      startTime: candidate.startTime,
+    };
+
+    return mutationResult.frame;
   }
 }

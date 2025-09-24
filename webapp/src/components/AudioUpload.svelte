@@ -250,12 +250,12 @@
 
   async function loadSampleFile() {
     try {
-      const response = await fetch('/fesk1mp.wav')
+      const response = await fetch('/webapp-fesk2.wav')
       const arrayBuffer = await response.arrayBuffer()
       const blob = new Blob([arrayBuffer], { type: 'audio/wav' })
 
       // Create a File object from the blob
-      const file = new File([blob], 'fesk1mp.wav', { type: 'audio/wav' })
+      const file = new File([blob], 'webapp-fesk2.wav', { type: 'audio/wav' })
 
       await handleFileSelect(file)
     } catch (error) {

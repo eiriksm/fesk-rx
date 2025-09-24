@@ -4,16 +4,18 @@ import { WavReader } from "../utils/wavReader";
 
 jest.setTimeout(180000);
 
+const TEST_TONE_SEQUENCE =
+  "2,0,2,0,2,0,2,0,2,0,2,0,2,2,2,2,2,0,0,2,2,0,2,0,2,1,1,2,0,0,0,1,1,2,1,0,1,1,0,0,1,2,2,0,1,2,0,1,0,2,0,0,2,1,2,2,0,0,2,0,2,2,1,0,1,1"
+    .split(",")
+    .map(Number);
+
 /**
  * Integration tests for complete FESK decoding using new TX format
  */
 describe("FESK Integration Tests", () => {
   describe("Tone sequence tests", () => {
     it("should decode a simple tone sequence", () => {
-      const toneSequence =
-        "2,0,2,0,2,0,2,0,2,0,2,0,2,2,2,2,2,0,0,2,2,0,2,0,2,1,1,2,0,0,0,1,1,2,1,0,1,1,0,0,1,2,2,0,1,2,0,1,0,2,0,0,2,1,2,2,0,0,2,0,2,2,1,0,1,1"
-          .split(",")
-          .map(Number);
+      const toneSequence = TEST_TONE_SEQUENCE.slice();
 
       const { FeskDecoder } = require("../feskDecoder");
       const decoder = new FeskDecoder();
@@ -184,6 +186,55 @@ describe("FESK Integration Tests", () => {
       const message = new TextDecoder().decode(frame!.payload);
       expect(message).toBe("test");
       expect(frame!.header.payloadLength).toBe(4);
+    });
+
+    // Now the same for webapp-fesk1.wav.
+    it('should decode "test" from webapp-fesk1.wav', async () => {
+      const { FeskDecoder } = await import("../feskDecoder");
+      const path = require("path");
+
+      const wavPath = path.join(__dirname, "../../testdata/webapp-fesk1.wav");
+      const decoder = new FeskDecoder();
+      const frame = await decoder.decodeWavFileWithSymbolExtractor(wavPath);
+
+      expect(frame).not.toBeNull();
+      expect(frame!.isValid).toBe(true);
+      const message = new TextDecoder().decode(frame!.payload);
+      expect(message).toBe("test");
+      expect(frame!.header.payloadLength).toBe(4);
+    });
+
+    it('should decode "test" from webapp-fesk2.wav with matching sequence', async () => {
+      const { FeskDecoder } = await import("../feskDecoder");
+      const path = require("path");
+
+      const wavPath = path.join(__dirname, "../../testdata/webapp-fesk2.wav");
+
+      const decoder = new FeskDecoder();
+      let committedSequence: number[] | null = null;
+      let lastSequence: number[] | null = null;
+
+      const frame = await decoder.decodeWavFileWithSymbolExtractor(wavPath, {
+        debugIncludeSequence: true,
+        debugCollector: (info) => {
+          if (info.sequence) {
+            lastSequence = [...info.sequence];
+            if (info.frameValid) {
+              committedSequence = [...info.sequence];
+            }
+          }
+        },
+      });
+
+      expect(frame).not.toBeNull();
+      expect(frame!.isValid).toBe(true);
+      const message = new TextDecoder().decode(frame!.payload);
+      expect(message).toBe("test");
+      expect(frame!.header.payloadLength).toBe(4);
+
+      const sequence = committedSequence ?? lastSequence;
+      expect(sequence).not.toBeNull();
+      expect(sequence).toEqual(TEST_TONE_SEQUENCE);
     });
   });
 });

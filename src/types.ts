@@ -2,6 +2,11 @@ export interface AudioSample {
   data: Float32Array;
   sampleRate: number;
   timestamp: number;
+  normalizationGain?: number;
+  peakLevel?: number;
+  rmsLevel?: number;
+  originalPeakLevel?: number;
+  originalRmsLevel?: number;
 }
 
 export interface ToneDetection {
