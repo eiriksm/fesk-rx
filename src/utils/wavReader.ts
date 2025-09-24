@@ -2,8 +2,18 @@ import * as fs from "fs";
 import { decode } from "wav-decoder";
 import { AudioSample } from "../types";
 
+export interface WavReadOptions {
+  normalize?: boolean;
+  targetPeak?: number;
+  maxGain?: number;
+  normalizationFloor?: number;
+}
+
 export class WavReader {
-  static async readWavFile(filePath: string): Promise<AudioSample> {
+  static async readWavFile(
+    filePath: string,
+    options: WavReadOptions = {},
+  ): Promise<AudioSample> {
     try {
       const buffer = fs.readFileSync(filePath);
       const audioData = await decode(buffer);
@@ -25,10 +35,55 @@ export class WavReader {
         }
       }
 
+      const {
+        normalize = true,
+        targetPeak = 0.9,
+        maxGain = 25,
+        normalizationFloor = 0.005,
+      } = options;
+
+      let peak = 0;
+      let sumSquares = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const value = samples[i];
+        const abs = Math.abs(value);
+        if (abs > peak) {
+          peak = abs;
+        }
+        sumSquares += value * value;
+      }
+
+      const rms = samples.length > 0 ? Math.sqrt(sumSquares / samples.length) : 0;
+      const originalPeak = peak;
+      const originalRms = rms;
+
+      let gainApplied = 1;
+
+      if (normalize && peak > normalizationFloor) {
+        const desiredGain = targetPeak / peak;
+        if (desiredGain > 1) {
+          const gain = Math.min(desiredGain, maxGain);
+          if (gain > 1.0001) {
+            for (let i = 0; i < samples.length; i++) {
+              samples[i] *= gain;
+            }
+            gainApplied = gain;
+            peak = Math.min(1, peak * gain);
+          }
+        }
+      }
+
+      const normalizedRms = gainApplied !== 1 ? rms * gainApplied : rms;
+
       return {
         data: samples,
         sampleRate: audioData.sampleRate,
         timestamp: Date.now(),
+        normalizationGain: gainApplied !== 1 ? gainApplied : undefined,
+        peakLevel: peak,
+        rmsLevel: normalizedRms,
+        originalPeakLevel: originalPeak,
+        originalRmsLevel: originalRms,
       };
     } catch (error) {
       throw new Error(`Failed to read WAV file: ${error}`);
@@ -38,8 +93,9 @@ export class WavReader {
   static async readWavFileInChunks(
     filePath: string,
     chunkSizeSeconds: number = 1.0,
+    options: WavReadOptions = {},
   ): Promise<AudioSample[]> {
-    const fullAudio = await this.readWavFile(filePath);
+    const fullAudio = await this.readWavFile(filePath, options);
     const chunkSizeSamples = Math.floor(
       fullAudio.sampleRate * chunkSizeSeconds,
     );
@@ -53,6 +109,11 @@ export class WavReader {
         data: chunkData,
         sampleRate: fullAudio.sampleRate,
         timestamp: fullAudio.timestamp + (i / fullAudio.sampleRate) * 1000, // Add time offset
+        normalizationGain: fullAudio.normalizationGain,
+        peakLevel: fullAudio.peakLevel,
+        rmsLevel: fullAudio.rmsLevel,
+        originalPeakLevel: fullAudio.originalPeakLevel,
+        originalRmsLevel: fullAudio.originalRmsLevel,
       });
     }
 
@@ -65,8 +126,9 @@ export class WavReader {
   static async readWavFileWithOffset(
     filePath: string,
     offsetSeconds: number = 0,
+    options: WavReadOptions = {},
   ): Promise<AudioSample> {
-    const fullAudio = await this.readWavFile(filePath);
+    const fullAudio = await this.readWavFile(filePath, options);
     const offsetSamples = Math.floor(offsetSeconds * fullAudio.sampleRate);
 
     if (offsetSamples >= fullAudio.data.length) {
@@ -79,6 +141,11 @@ export class WavReader {
       data: offsetData,
       sampleRate: fullAudio.sampleRate,
       timestamp: fullAudio.timestamp + offsetSeconds * 1000,
+      normalizationGain: fullAudio.normalizationGain,
+      peakLevel: fullAudio.peakLevel,
+      rmsLevel: fullAudio.rmsLevel,
+      originalPeakLevel: fullAudio.originalPeakLevel,
+      originalRmsLevel: fullAudio.originalRmsLevel,
     };
   }
 }

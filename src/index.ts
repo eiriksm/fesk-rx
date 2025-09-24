@@ -2,7 +2,7 @@ export { FeskDecoder } from "./feskDecoder";
 export { ToneDetector } from "./toneDetector";
 export { PreambleDetector } from "./preambleDetector";
 export { SyncDetector } from "./syncDetector";
-export { WavReader } from "./utils/wavReader";
+export { WavReader, type WavReadOptions } from "./utils/wavReader";
 export { DEFAULT_CONFIG } from "./config";
 export * from "./types";
 export * from "./config";
