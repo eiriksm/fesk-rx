@@ -185,5 +185,21 @@ describe("FESK Integration Tests", () => {
       expect(message).toBe("test");
       expect(frame!.header.payloadLength).toBe(4);
     });
+
+    // Now the same for webapp-fesk1.wav.
+    it('should decode "test" from webapp-fesk1.wav', async () => {
+      const { FeskDecoder } = await import("../feskDecoder");
+      const path = require("path");
+
+      const wavPath = path.join(__dirname, "../../testdata/webapp-fesk1.wav");
+      const decoder = new FeskDecoder();
+      const frame = await decoder.decodeWavFileWithSymbolExtractor(wavPath);
+
+      expect(frame).not.toBeNull();
+      expect(frame!.isValid).toBe(true);
+      const message = new TextDecoder().decode(frame!.payload);
+      expect(message).toBe("test");
+      expect(frame!.header.payloadLength).toBe(4);
+    });
   });
 });
