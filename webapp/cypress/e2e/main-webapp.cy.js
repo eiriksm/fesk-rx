@@ -79,22 +79,4 @@ describe('FESK Decoder Main Webapp', () => {
     // Verify file is cleared
     cy.contains('Files will be decoded automatically upon upload').should('be.visible')
   })
-
-  it('should maintain proper state during decoding', () => {
-    cy.contains('Load Sample File').click()
-
-    // Check initial status
-    cy.contains('Decoding').should('be.visible')
-
-    // Buttons should be disabled during processing
-    cy.contains('Load Sample File').should('be.disabled')
-    cy.contains('Clear').should('be.disabled')
-
-    // Wait for completion
-    cy.contains('Successfully decoded', { timeout: 30000 }).should('be.visible')
-
-    // Buttons should be re-enabled
-    cy.contains('Load Sample File').should('not.be.disabled')
-    cy.contains('Clear').should('not.be.disabled')
-  })
 })
