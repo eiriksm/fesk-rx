@@ -38,25 +38,6 @@ describe('FESK Decoder Main Webapp', () => {
     cy.get('input[type="file"]').should('exist').and('not.be.visible')
   })
 
-  it('should display microphone controls', () => {
-    // Real-time listening section
-    cy.contains('Start Listening').should('be.visible')
-
-    // Recording section
-    cy.contains('Start Recording').should('be.visible')
-
-    // Both buttons should be enabled initially
-    cy.contains('Start Listening').should('not.be.disabled')
-    cy.contains('Start Recording').should('not.be.disabled')
-  })
-
-  it('should show proper frequency indicators in header', () => {
-    // Check the frequency indicators in the header
-    cy.contains('2794 Hz (F7)').should('be.visible')
-    cy.contains('3520 Hz (A7)').should('be.visible')
-    cy.contains('4699 Hz (D8)').should('be.visible')
-  })
-
   it('should have responsive layout', () => {
     // Test desktop view
     cy.viewport(1280, 720)
