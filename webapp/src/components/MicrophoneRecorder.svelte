@@ -410,7 +410,8 @@
 
     const usingTrimmedOverride = Boolean(params.__micUseTrimmed)
     const leadPaddingOverride = params.leadPaddingOverride ?? null
-    const shouldUseTrimmedInitially = usingTrimmedOverride
+    const trimmedPreferred = trimmedAvailable && trimmedLeadPaddingMs <= 600
+    const shouldUseTrimmedInitially = usingTrimmedOverride || trimmedPreferred
 
     let workingData = shouldUseTrimmedInitially ? trimmedData : audioData.data
     let leadPaddingMs = shouldUseTrimmedInitially
@@ -626,7 +627,8 @@
     const trimmedAvailable = trimmedData.length > 0 && trimmedData.length < audioData.data.length
     const overrideProvided = Object.prototype.hasOwnProperty.call(params, 'leadPaddingOverride')
     const leadPaddingOverride = overrideProvided ? params.leadPaddingOverride : null
-    const useTrimmed = overrideProvided ? true : false
+    const trimmedPreferred = trimmedAvailable && trimmedLeadPaddingMs <= 600
+    const useTrimmed = overrideProvided ? true : trimmedPreferred
 
     const workingData = useTrimmed ? trimmedData : audioData.data
     const leadPaddingMs = useTrimmed
