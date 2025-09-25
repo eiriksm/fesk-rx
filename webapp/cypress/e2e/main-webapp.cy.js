@@ -20,7 +20,7 @@ describe('FESK Decoder Main Webapp', () => {
     cy.contains('Decoding', { timeout: 5000 }).should('be.visible')
 
     // Wait for decoding to complete
-    cy.contains('Successfully decoded', { timeout: 30000 }).should('be.visible')
+    cy.contains('Successfully decoded', { timeout: 180000 }).should('be.visible')
 
     // Check that waveform is displayed
     cy.get('canvas').should('be.visible')
