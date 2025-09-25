@@ -248,71 +248,36 @@
   // Try multiple parameter combinations automatically
   async function tryMultipleParameterCombinations(audioData, FeskDecoder, DEFAULT_CONFIG) {
     const combinations = [
-      // Start with current user settings
       {
-        name: 'Current Settings',
-        tolerantMode,
-        frequencySet,
-        useParametricGoertzel,
-        useAdvancedTiming,
-        useHannWindow,
-        chunkSizeMs
-      },
-      // Try standard combinations
-      {
-        name: 'Standard + Parametric Goertzel',
-        tolerantMode: false,
+        name: 'Default (fast)',
+        tolerant: false,
         frequencySet: 'default',
-        useParametricGoertzel: true,
-        useAdvancedTiming: false,
-        useHannWindow: false,
-        chunkSizeMs: 100
+        chunkSizeMs: DEFAULT_CHUNK_SIZE,
+        preferExtractor: true
       },
       {
-        name: 'Standard + Advanced Timing',
-        tolerantMode: false,
+        name: 'Default (standard)',
+        tolerant: false,
         frequencySet: 'default',
-        useParametricGoertzel: false,
-        useAdvancedTiming: true,
-        useHannWindow: false,
-        chunkSizeMs: 100
+        chunkSizeMs: DEFAULT_CHUNK_SIZE
       },
       {
-        name: 'All Advanced Features',
-        tolerantMode: false,
-        frequencySet: 'default',
-        useParametricGoertzel: true,
-        useAdvancedTiming: true,
-        useHannWindow: true,
-        chunkSizeMs: 100
-      },
-      // Try tolerant mode combinations
-      {
-        name: 'Tolerant Mode',
-        tolerantMode: true,
-        frequencySet: 'default',
-        useParametricGoertzel: false,
-        useAdvancedTiming: false,
-        useHannWindow: false,
-        chunkSizeMs: 100
-      },
-      {
-        name: 'Tolerant + Hardware Frequencies',
-        tolerantMode: true,
+        name: 'Hardware (standard)',
+        tolerant: false,
         frequencySet: 'hardware',
-        useParametricGoertzel: false,
-        useAdvancedTiming: false,
-        useHannWindow: false,
-        chunkSizeMs: 150
+        chunkSizeMs: DEFAULT_CHUNK_SIZE
       },
       {
-        name: 'Tolerant + All Advanced',
-        tolerantMode: true,
+        name: 'Default (tolerant)',
+        tolerant: true,
         frequencySet: 'default',
-        useParametricGoertzel: true,
-        useAdvancedTiming: true,
-        useHannWindow: true,
-        chunkSizeMs: 150
+        chunkSizeMs: 120
+      },
+      {
+        name: 'Hardware (tolerant)',
+        tolerant: true,
+        frequencySet: 'hardware',
+        chunkSizeMs: 120
       }
     ]
 
@@ -331,7 +296,7 @@
         let symbols = []
         let frequencySetUsed = null
 
-        if (combo.tolerantMode) {
+        if (combo.tolerant) {
           const result = await tryTolerantDecodeWithParams(audioData, decoder, combo)
           frame = result.frame
           symbols = result.symbols
@@ -530,12 +495,12 @@
 
         extractorInput = offsetData
 
-        const currentChunkSize = params.chunkSizeMs || chunkSizeMs
+        const currentChunkSize = params.chunkSizeMs ?? DEFAULT_CHUNK_SIZE
         frame = await decoder.processAudioComplete(offsetData, audioData.sampleRate, currentChunkSize)
 
         symbols = getSymbols(buildSample(offsetData))
       } else {
-        const currentChunkSize = params.chunkSizeMs || chunkSizeMs
+        const currentChunkSize = params.chunkSizeMs ?? DEFAULT_CHUNK_SIZE
         frame = await decoder.processAudioComplete(workingData, audioData.sampleRate, currentChunkSize)
 
         extractorInput = workingData
@@ -671,18 +636,7 @@
             duration: offsetData.length / audioData.sampleRate
           }
 
-          // Extract symbols with this timing
-          let symbols
-          const useAdvanced = params.useAdvancedTiming || params.useParametricGoertzel || params.useHannWindow
-          if (useAdvanced) {
-            symbols = decoder.toneDetector.extractSymbolsAdvanced(audioSample, {
-              useParametricGoertzel: params.useParametricGoertzel || false,
-              useHannWindow: params.useHannWindow || false,
-              timingSearchWindow: params.useAdvancedTiming ? Math.floor(decoder.config.symbolDuration * audioData.sampleRate * 0.1) : 0
-            })
-          } else {
-            symbols = decoder.toneDetector.extractSymbols(audioSample, 0)
-          }
+          const symbols = decoder.toneDetector.extractSymbols(audioSample, 0)
 
           if (symbols.length < 50) continue // Need reasonable symbol count
 
@@ -859,134 +813,6 @@
     {/if}
 
     <!-- Decoding Options -->
-    <div class="bg-gray-50 rounded-lg p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="font-medium text-gray-900">Decoding Options</h3>
-        <button
-          class="text-sm text-blue-600 hover:text-blue-800"
-          on:click={() => showAdvancedOptions = !showAdvancedOptions}
-        >
-          {showAdvancedOptions ? '🔼 Less' : '🔽 More'}
-        </button>
-      </div>
-
-      <!-- Tolerant Mode Toggle -->
-      <div class="flex items-center space-x-3">
-        <input
-          type="checkbox"
-          id="tolerantMode"
-          bind:checked={tolerantMode}
-          class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-        />
-        <label for="tolerantMode" class="text-sm font-medium text-gray-700">
-          Hardware/Mobile Recording Mode
-        </label>
-        <span class="text-xs text-gray-500 bg-yellow-100 px-2 py-1 rounded">
-          🔧 Tolerant validation for real-world recordings
-        </span>
-      </div>
-
-      {#if showAdvancedOptions}
-        <!-- Frequency Set -->
-        <div class="space-y-2">
-          <label class="text-sm font-medium text-gray-700">Frequency Set</label>
-          <select bind:value={frequencySet} class="input w-full text-sm">
-            <option value="default">Default (2794/3520/4699 Hz - F7/A7/D8)</option>
-            <option value="hardware">Hardware (1200/1600/2000 Hz)</option>
-          </select>
-        </div>
-
-        <!-- Chunk Size -->
-        <div class="space-y-2">
-          <label class="text-sm font-medium text-gray-700">Processing Chunk Size</label>
-          <select bind:value={chunkSizeMs} class="input w-full text-sm">
-            <option value={50}>50ms (Fast, less accurate)</option>
-            <option value={100}>100ms (Standard)</option>
-            <option value={150}>150ms (Slower, more accurate)</option>
-          </select>
-        </div>
-
-        <!-- Advanced DSP Options -->
-        <div class="border-t border-gray-200 pt-3 space-y-3">
-          <h4 class="text-sm font-semibold text-gray-900 flex items-center">
-            🔬 Advanced DSP Options
-            <span class="ml-2 text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Experimental</span>
-          </h4>
-
-          <!-- Parametric Goertzel -->
-          <div class="flex items-center space-x-3">
-            <input
-              type="checkbox"
-              id="parametricGoertzel"
-              bind:checked={useParametricGoertzel}
-              class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-            />
-            <label for="parametricGoertzel" class="text-sm text-gray-700">
-              Parametric Goertzel (fixes frequency binning mismatch)
-            </label>
-          </div>
-
-          <!-- Advanced Timing -->
-          <div class="flex items-center space-x-3">
-            <input
-              type="checkbox"
-              id="advancedTiming"
-              bind:checked={useAdvancedTiming}
-              class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-            />
-            <label for="advancedTiming" class="text-sm text-gray-700">
-              Advanced Timing Search (coarse-to-fine symbol timing)
-            </label>
-          </div>
-
-          <!-- Hann Window -->
-          <div class="flex items-center space-x-3">
-            <input
-              type="checkbox"
-              id="hannWindow"
-              bind:checked={useHannWindow}
-              class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-            />
-            <label for="hannWindow" class="text-sm text-gray-700">
-              Use Hann Window (instead of Hamming)
-            </label>
-          </div>
-
-          <!-- Threshold Controls -->
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1">
-              <label class="text-xs text-gray-600">Confidence Threshold</label>
-              <input
-                type="range"
-                min="0.1"
-                max="0.8"
-                step="0.05"
-                bind:value={confidenceThreshold}
-                class="w-full"
-              />
-              <span class="text-xs text-gray-500">{confidenceThreshold}</span>
-            </div>
-            <div class="space-y-1">
-              <label class="text-xs text-gray-600">Strength Threshold</label>
-              <input
-                type="range"
-                min="0.0001"
-                max="0.01"
-                step="0.0001"
-                bind:value={strengthThreshold}
-                class="w-full"
-              />
-              <span class="text-xs text-gray-500">{strengthThreshold.toFixed(4)}</span>
-            </div>
-          </div>
-
-          <div class="text-xs text-gray-500 bg-yellow-50 border border-yellow-200 rounded p-2">
-            ⚠️ These experimental options implement the DSP improvements suggested for fixing Goertzel binning issues and symbol timing drift. Use with problematic recordings.
-          </div>
-        </div>
-      {/if}
-    </div>
-
     <!-- Recording Controls -->
     <div class="space-y-3">
       <div class="flex items-center justify-between p-4 bg-emerald-50 rounded-lg">
@@ -997,14 +823,13 @@
               Recording... {recordingTime.toFixed(1)}s - Audio will be automatically decoded when stopped
             {:else if isDecoding}
               🔄 Decoding audio, trying multiple parameter combinations...
-            {:else if tolerantMode}
-              🔧 Tolerant mode enabled - better for hardware/mobile recordings
             {:else}
               Click to start recording. Stop to automatically decode the recorded audio
             {/if}
           </p>
         </div>
         <button
+          data-test-id="toggle-record"
           class="btn {isRecording ? 'btn-danger' : 'btn-success'} btn-large"
           on:click={isRecording ? stopRecording : startRecording}
           disabled={disabled || isDecoding}
