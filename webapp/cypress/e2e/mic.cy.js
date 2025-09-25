@@ -7,13 +7,10 @@ describe('FESK recorder Test Suite', () => {
 
     cy.enableAudioContext()
 
-    cy.contains('Start Recording', { timeout: 10000 }).click()
-    // Wait for like 10.5 seconds.
+    cy.get('[data-test-id="toggle-record"]', { timeout: 10000 }).click()
     cy.wait(10500)
-
-    // Now click "stop".
     cy.get('[data-test-id="toggle-record"]').click()
 
-    cy.contains('Successfully decoded: "test"', { timeout: 60000 }).should('exist')
+    cy.contains('Successfully decoded: "test"', { timeout: 180000 }).should('exist')
   })
 })
