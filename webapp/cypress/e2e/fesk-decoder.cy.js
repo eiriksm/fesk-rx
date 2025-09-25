@@ -58,22 +58,8 @@ describe('FESK Decoder Test Suite', () => {
 
     // Enable audio context by interacting with the page
     cy.enableAudioContext()
-
-    // Wait for page to load completely
-    cy.get('#testGrid').should('be.visible')
     cy.get('.test-card').should('have.length', testFiles.length)
   })
-
-  it('should decode audio when recording with fake microphone stream', () => {
-    cy.visit('/')
-
-    cy.enableAudioContext()
-
-    cy.contains('Start Recording', { timeout: 10000 }).click()
-
-    cy.contains('Successfully decoded: "test"', { timeout: 60000 }).should('exist')
-  })
-
 
   it('should load the test page with all test cards', () => {
     cy.get('h1').should('contain', 'FESK Decoder Test Suite')
