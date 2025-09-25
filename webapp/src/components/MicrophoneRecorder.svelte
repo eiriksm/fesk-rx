@@ -26,20 +26,10 @@
   let isDecoding = false // Track decoding state
 
   // Decoding options
-  let tolerantMode = false
-  let chunkSizeMs = 100
-  let frequencySet = 'default' // 'default', 'hardware'
-  let showAdvancedOptions = false
-
-  // Advanced DSP options
-  let useParametricGoertzel = false
-  let useAdvancedTiming = false
-  let useHannWindow = false
-  let confidenceThreshold = 0.3
-  let strengthThreshold = 0.001
-
   const FAST_SYMBOL_DURATIONS = [0.098, 0.1, 0.102]
   const DEFAULT_FREQUENCY_SET: [number, number, number] = [2793.83, 3520, 4698.63]
+  const HARDWARE_FREQUENCY_SET: [number, number, number] = [1200, 1600, 2000]
+  const DEFAULT_CHUNK_SIZE = 100
 
   function revokeDownloadUrl() {
     if (downloadUrl) {
@@ -384,20 +374,14 @@
     return await tryTolerantDecode(audioData, decoder, params)
   }
 
-  async function tryStandardDecode(audioData, decoder, params = {}) {
-    const preferExtractor = true
-    const useAdvanced = params.useAdvancedTiming || params.useParametricGoertzel || params.useHannWindow
+  async function tryStandardDecode(audioData, decoder, params: any = {}) {
+    const preferExtractor =
+      typeof params.preferExtractor === 'boolean'
+        ? params.preferExtractor
+        : audioData.sampleRate >= 47000
 
-    const getSymbols = sample => {
-      if (useAdvanced) {
-        return decoder.toneDetector.extractSymbolsAdvanced(sample, {
-          useParametricGoertzel: params.useParametricGoertzel || false,
-          useHannWindow: params.useHannWindow || false,
-          timingSearchWindow: params.useAdvancedTiming ? Math.floor(decoder.config.symbolDuration * audioData.sampleRate * 0.1) : 0
-        })
-      }
-      return decoder.toneDetector.extractSymbols(sample, 0)
-    }
+    const getSymbols = (sample: { data: Float32Array; sampleRate: number }) =>
+      decoder.toneDetector.extractSymbols(sample, 0)
 
     const trimResult = trimSilence(audioData.data, audioData.sampleRate, {
       threshold: 0.0012,
@@ -424,7 +408,10 @@
       duration: data.length / audioData.sampleRate
     })
 
-    const runSymbolExtractor = async (data, mode = 'full') => {
+    const runSymbolExtractor = async (
+      data: Float32Array,
+      mode: 'fast' | 'full' = 'full'
+    ) => {
       if (!data || data.length === 0) return null
       try {
         decoder.reset()
@@ -443,19 +430,27 @@
 
         const startTimeRange = mode === 'fast' ? fastRange : fullRange
 
+        const useLowSampleRate = audioData.sampleRate <= 46000
+
+        const fastFrequencySets = useLowSampleRate
+          ? [
+              { name: 'hardware-fast', tones: HARDWARE_FREQUENCY_SET },
+              { name: 'default-fast', tones: DEFAULT_FREQUENCY_SET }
+            ]
+          : [{ name: 'default-fast', tones: DEFAULT_FREQUENCY_SET }]
+
+        const fastCandidateOffsets = useLowSampleRate
+          ? [0, -0.02, 0.02, -0.015, 0.015, -0.01, 0.01]
+          : [0, -0.015, 0.015, -0.01, 0.01, -0.005, 0.005]
+
         const extractorOptions =
           mode === 'fast'
             ? {
                 startTimeRange,
-                frequencySets: [
-                  {
-                    name: 'default-fast',
-                    tones: DEFAULT_FREQUENCY_SET
-                  }
-                ],
+                frequencySets: fastFrequencySets,
                 symbolDurations: FAST_SYMBOL_DURATIONS,
-                candidateOffsets: [0],
-                minConfidence: 0.1
+                candidateOffsets: fastCandidateOffsets,
+                minConfidence: useLowSampleRate ? 0.08 : 0.12
               }
             : { startTimeRange }
 
