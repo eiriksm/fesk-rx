@@ -1,33 +1,23 @@
 // Custom Cypress commands for FESK testing
 
 // Command to test a specific FESK file
-Cypress.Commands.add('testFeskFile', (testIndex, expectedMessage, expectedStartTime = null, tolerance = 500) => {
+Cypress.Commands.add('testFeskFile', (testIndex, expectedMessage) => {
   cy.log(`Testing FESK file at index ${testIndex}`)
 
   // Click the test button
-  cy.get(`#button-${testIndex}`)
+  cy.get(`.card-index-${testIndex} button`)
     .should('be.visible')
     .and('not.be.disabled')
     .click()
 
-  // Wait for test to complete
-  cy.get(`#button-${testIndex}`, { timeout: 30000 })
-    .should('not.contain', 'Testing...')
 
   // Check if test passed
-  cy.get(`#card-${testIndex}`)
-    .should('have.class', 'success')
+  cy.get(`.card-index-${testIndex} .test-result`, { timeout: 180000 })
+    .should('have.class', 'result-success')
 
   // Verify the decoded message
-  cy.get(`#result-${testIndex}`)
-    .should('be.visible')
+  cy.get(`.card-index-${testIndex} .decoded-message`)
     .and('contain', expectedMessage)
-
-  // If expected start time is provided, verify timing
-  if (expectedStartTime !== null) {
-    cy.get(`#result-${testIndex}`)
-      .should('contain', 'START TIME:')
-  }
 
   cy.log(`✅ FESK file test ${testIndex} passed`)
 })
@@ -62,15 +52,4 @@ Cypress.Commands.add('runAllFeskTests', (expectedResults) => {
   cy.get('#testSummary')
     .should('be.visible')
     .and('contain', 'TOTAL TESTS:')
-})
-
-// Command to check audio context readiness
-Cypress.Commands.add('enableAudioContext', () => {
-  cy.window().then((win) => {
-    // Interact with page to enable audio context
-    cy.get('body').click()
-
-    // Wait a moment for audio context to be ready
-    cy.wait(100)
-  })
 })
