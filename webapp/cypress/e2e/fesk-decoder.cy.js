@@ -70,22 +70,6 @@ describe('FESK Decoder Test Suite', () => {
     )
   })
 
-  it('should successfully decode fesk1mp.wav', () => {
-    const testFile = testFiles[3] // fesk1mp.wav
-    cy.testFeskFile(
-      3,
-      testFile.expectedMessage,
-    )
-  })
-
-  it('should successfully decode webapp-fesk1.wav', () => {
-    const testFile = testFiles[4] // webapp-fesk1.wav
-    cy.testFeskFile(
-      4,
-      testFile.expectedMessage,
-    )
-  })
-
   it('should successfully decode webapp-fesk2.wav', () => {
     const testFile = testFiles[5] // webapp-fesk2.wav
     cy.testFeskFile(

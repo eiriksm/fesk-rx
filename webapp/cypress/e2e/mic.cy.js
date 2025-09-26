@@ -5,8 +5,6 @@ describe('FESK recorder Test Suite', () => {
   it('should decode audio when recording with fake microphone stream', () => {
     cy.visit('/')
 
-    cy.enableAudioContext()
-
     cy.get('[data-test-id="toggle-record"]', { timeout: 10000 }).click()
     cy.wait(10500)
     cy.get('[data-test-id="toggle-record"]').click()

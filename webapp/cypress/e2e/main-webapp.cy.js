@@ -3,7 +3,6 @@
 describe('FESK Decoder Main Webapp', () => {
   beforeEach(() => {
     cy.visit('/')
-    cy.enableAudioContext()
   })
 
   it('should load the main application', () => {
