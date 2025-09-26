@@ -1,6 +1,5 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  import { trimSilence } from '../utils/audio'
 
   const dispatch = createEventDispatcher()
 
@@ -79,167 +78,24 @@
     dispatch('decodeStart')
 
     try {
-      // Import our FESK decoder
-      const { FeskDecoder } = await import('@fesk/feskDecoder')
-      const decoder = new FeskDecoder()
+      const channelData = audioBuffer.getChannelData(0)
+      const { decodeWithDefaultPipeline } = await import('../utils/decodePipeline')
 
-      // Convert audio buffer to the format expected by our decoder
-      const originalData = audioBuffer.getChannelData(0)
-      const { data: trimmedData, leadPaddingMs } = trimSilence(originalData, audioBuffer.sampleRate)
-
-      const workingData = trimmedData.length > 0 ? trimmedData : originalData
-      const preferExtractor = audioBuffer.sampleRate >= 47000
-
-      const buildSample = data => ({
-        data,
-        sampleRate: audioBuffer.sampleRate,
-        duration: data.length / audioBuffer.sampleRate
+      const decodeResult = await decodeWithDefaultPipeline(channelData, audioBuffer.sampleRate, {
+        preferExtractor: audioBuffer.sampleRate >= 47000,
       })
 
-      const runSymbolExtractor = async data => {
-        if (!data || data.length === 0) return null
-        try {
-          decoder.reset()
-
-          const duration = data.length / audioBuffer.sampleRate
-          const startTimeRange = {
-            start: 0,
-            end: Math.max(0.05, Math.min(duration, Math.max(0.5, duration * 0.75))),
-            step: 0.02
-          }
-
-          const candidate = await decoder.decodeAudioDataWithSymbolExtractor(
-            data,
-            audioBuffer.sampleRate,
-            { startTimeRange }
-          )
-
-          if (!candidate) return null
-
-          const info = decoder.getLastSymbolExtractorInfo()
-          return {
-            frame: candidate,
-            symbols: decoder.toneDetector.extractSymbols(buildSample(data), 0),
-            frequencySet: info?.frequencySet ?? null
-          }
-        } catch (error) {
-          console.error('Symbol extractor attempt failed:', error)
-          return null
-        }
-      }
-
-      let frame = null
-      let symbols = []
-      let frequencySet = null
-
-      let extractorInput = workingData
-      let extractorAttemptedTrimmed = false
-      let extractorAttemptedOriginal = workingData === originalData
-
-      if (preferExtractor) {
-        const extractorResult = await runSymbolExtractor(workingData)
-        extractorAttemptedTrimmed = true
-        if (extractorAttemptedOriginal === false && workingData === originalData) {
-          extractorAttemptedOriginal = true
-        }
-
-        if (extractorResult) {
-          frame = extractorResult.frame
-          symbols = extractorResult.symbols
-          frequencySet = extractorResult.frequencySet ?? frequencySet
-        }
-      }
-
-      let startTime = null
-
-      if (!frame) {
-        decoder.reset()
-
-        startTime = decoder.findTransmissionStart(workingData, audioBuffer.sampleRate)
-
-        if (startTime !== null) {
-          let decodeStartMs = startTime
-
-          if (audioBuffer.sampleRate >= 47000) {
-            decodeStartMs += 300
-          }
-
-          const startSeconds = decodeStartMs / 1000
-          const offsetIndex = Math.floor(startSeconds * audioBuffer.sampleRate)
-          const offsetData = workingData.slice(offsetIndex)
-
-          extractorInput = offsetData
-
-          frame = await decoder.processAudioComplete(
-            offsetData,
-            audioBuffer.sampleRate,
-            100
-          )
-
-          symbols = decoder.toneDetector.extractSymbols(buildSample(offsetData), 0)
-        } else {
-          frame = await decoder.processAudioComplete(
-            workingData,
-            audioBuffer.sampleRate,
-            100
-          )
-
-          symbols = decoder.toneDetector.extractSymbols(buildSample(workingData), 0)
-        }
-      }
-
-      if (!frame || !frame.isValid) {
-        if (extractorInput !== workingData && extractorInput.length > 0) {
-          const offsetResult = await runSymbolExtractor(extractorInput)
-
-          if (offsetResult) {
-            frame = offsetResult.frame
-            symbols = offsetResult.symbols
-            frequencySet = offsetResult.frequencySet ?? frequencySet
-          }
-        }
-
-        if ((!frame || !frame.isValid) && !extractorAttemptedTrimmed) {
-          const trimmedResult = await runSymbolExtractor(workingData)
-          extractorAttemptedTrimmed = true
-
-          if (trimmedResult) {
-            frame = trimmedResult.frame
-            symbols = trimmedResult.symbols
-            frequencySet = trimmedResult.frequencySet ?? frequencySet
-          }
-        }
-
-        if ((!frame || !frame.isValid) && !extractorAttemptedOriginal) {
-          const fullResult = await runSymbolExtractor(originalData)
-          extractorAttemptedOriginal = true
-
-          if (fullResult) {
-            frame = fullResult.frame
-            symbols = fullResult.symbols
-            frequencySet = fullResult.frequencySet ?? frequencySet
-          }
-        }
-      }
-
-      const effectiveStartTime =
-        startTime !== null
-          ? startTime + leadPaddingMs
-          : leadPaddingMs > 0
-            ? leadPaddingMs
-            : null
-
       const results = {
-        frame,
-        startTime: effectiveStartTime,
-        preambleValid: frame ? true : false,
-        syncValid: frame ? true : false,
-        frequencySet
+        frame: decodeResult.frame,
+        startTime: decodeResult.startTime,
+        preambleValid: decodeResult.frame ? true : false,
+        syncValid: decodeResult.frame ? true : false,
+        frequencySet: decodeResult.frequencySet,
       }
 
       dispatch('decodeComplete', {
         results,
-        symbols
+        symbols: decodeResult.symbols,
       })
 
     } catch (error) {

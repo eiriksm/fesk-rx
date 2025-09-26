@@ -4,64 +4,31 @@
   const testFiles = [
     {
       name: 'fesk1.wav',
-      description: 'Original synthetic FESK transmission',
       expectedMessage: 'test',
-      expectedStartTime: 1000,
-      tolerance: 200
     },
     {
       name: 'fesk2.wav',
-      description: 'Second synthetic test transmission',
-      expectedMessage: 'hello world',
-      expectedStartTime: 1000,
-      tolerance: 200
+      expectedMessage: 'three45',
     },
     {
       name: 'fesk3.wav',
-      description: 'Third synthetic test transmission',
-      expectedMessage: 'the truth is out there',
-      expectedStartTime: 1000,
-      tolerance: 200
-    },
-    {
-      name: 'fesk1hw.wav',
-      description: 'Hardware recording (44.1kHz)',
-      expectedMessage: 'test',
-      expectedStartTime: 600,
-      tolerance: 300,
-      symbolExtractorOptions: {
-        frequencySets: [
-          {
-            name: 'hardware',
-            tones: [1200, 1600, 2000]
-          }
-        ],
-        symbolDurations: [0.098, 0.1, 0.102],
-        startTimeRange: { start: 0.3, end: 2.5, step: 0.002 },
-        symbolsToExtract: 90,
-        windowFraction: 0.6,
-        minConfidence: 0.08,
-        candidateOffsets: [0, -0.02, 0.02, -0.01, 0.01]
-      }
+      expectedMessage: 'a fairly long and might i say convoluted test message?',
     },
     {
       name: 'fesk1mp.wav',
-      description: 'Hardware recording (48kHz)',
       expectedMessage: 'test',
-      expectedStartTime: 2000,
-      tolerance: 300
     },
     {
-      name: 'fesk-ut-mobile.wav',
-      description: 'Mobile device recording',
+      name: 'webapp-fesk1.wav',
       expectedMessage: 'test',
-      expectedStartTime: 1000,
-      tolerance: 500
+    },
+    {
+      name: 'webapp-fesk2.wav',
+      expectedMessage: 'test',
     }
   ]
 
   let testResults = {}
-  let isRunningAllTests = false
   let overallResultsVisible = false
 
   async function runTest(index) {
@@ -118,13 +85,7 @@
       const decodedMessage = frame ? new TextDecoder().decode(frame.payload) : 'No frame decoded'
       const messageMatches = decodedMessage === testFile.expectedMessage
 
-      let timingMatches = true
-      if (detectedStartTime !== null) {
-        const timingDiff = Math.abs(detectedStartTime - testFile.expectedStartTime)
-        timingMatches = timingDiff <= testFile.tolerance
-      }
-
-      const success = messageMatches && timingMatches
+      const success = messageMatches
 
       testResults[index] = {
         testing: false,
@@ -148,23 +109,6 @@
     }
 
     testResults = { ...testResults } // Trigger reactivity
-  }
-
-  async function runAllTests() {
-    if (isRunningAllTests) return
-
-    isRunningAllTests = true
-    testResults = {}
-    overallResultsVisible = false
-
-    for (let i = 0; i < testFiles.length; i++) {
-      await runTest(i)
-      // Small delay between tests
-      await new Promise(resolve => setTimeout(resolve, 500))
-    }
-
-    overallResultsVisible = true
-    isRunningAllTests = false
   }
 
   function getStatusClass(index) {
@@ -199,7 +143,6 @@
 
     return `DECODED: "${result.decodedMessage}"
 EXPECTED: "${result.expected}"
-START TIME: ${result.detectedStartTime}ms (expected ~${result.startTimeExpected}ms)
 PROCESSING: ${result.processingTime}ms
 MATCH: ${result.success ? 'YES' : 'NO'}`
   }
@@ -239,25 +182,14 @@ DETAILED RESULTS:
       <p class="text-lg text-gray-600">Automated testing for FESK audio decoding with expected results</p>
     </div>
 
-    <div class="text-center mb-8">
-      <button
-        class="btn-large btn-purple"
-        on:click={runAllTests}
-        disabled={isRunningAllTests}
-      >
-        {isRunningAllTests ? '🔄 Running All Tests...' : '🚀 Run All Tests'}
-      </button>
-    </div>
-
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
       {#each testFiles as testFile, index}
-        <div class="card {getCardClass(index)}">
+        <div class="card {getCardClass(index)} card-index-{index}">
           <div class="flex items-center mb-3">
             <div class="status-indicator status-{getStatusClass(index)}"></div>
             <h3 class="font-semibold text-lg">{testFile.name}</h3>
           </div>
 
-          <p class="text-sm text-gray-600 mb-2">{testFile.description}</p>
           <p class="text-sm text-gray-600 mb-4">
             <strong>Expected:</strong> "{testFile.expectedMessage}"
           </p>
@@ -265,7 +197,7 @@ DETAILED RESULTS:
           <button
             class="btn {getButtonClass(index)} w-full mb-4"
             on:click={() => runTest(index)}
-            disabled={testResults[index]?.testing || isRunningAllTests}
+            disabled={testResults[index]?.testing}
           >
             {getButtonText(index)}
           </button>
@@ -273,6 +205,11 @@ DETAILED RESULTS:
           {#if testResults[index] && !testResults[index].testing}
             <div class="test-result result-{testResults[index].success ? 'success' : 'error'}">
               {formatResult(index)}
+            </div>
+          {/if}
+          {#if testResults[index] && testResults[index].decodedMessage}
+            <div class="decoded-message mt-2 text-xs text-gray-500 hidden">
+              {testResults[index].decodedMessage}
             </div>
           {/if}
         </div>

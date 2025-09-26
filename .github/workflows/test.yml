@@ -87,16 +87,14 @@ jobs:
 
   test-e2e:
     name: E2E tests
-    # Fix it later
-    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Select the node version
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version-file: '.nvmrc'
 
@@ -105,18 +103,16 @@ jobs:
 
       - name: Install dependencies for web
         run: |
-          ln -s receiver-web/dist/assets .
-          cd receiver-web
-          npm ci
-          npm run build
-          cd ..
+          cd webapp
+          npm i
 
       - name: Run cypress tests
         uses: cypress-io/github-action@v6
         with:
-          start: npm start
+          start: npm run dev
           wait-on: http://localhost:3000
           browser: chrome
+          working-directory: webapp
         env:
           CYPRESS_baseUrl: http://localhost:3000
 
