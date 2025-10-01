@@ -34,17 +34,33 @@ export async function decodeWithDefaultPipeline(
     try {
       decoder.reset()
 
+      // Optimized parameters for faster decoding
+      const isLowerSampleRate = sampleRate <= 46000
       const duration = data.length / sampleRate
+      const detectedStart = decoder.findTransmissionStart(data, sampleRate)
+      const detectedSeconds = detectedStart !== null ? detectedStart / 1000 : duration * 0.08
+
       const startTimeRange = {
-        start: 0,
-        end: Math.max(0.05, Math.min(duration, Math.max(0.5, duration * 0.75))),
-        step: 0.02,
+        start: Math.max(0, detectedSeconds - 0.6),
+        end: Math.min(duration - 0.25, detectedSeconds + 3.0),
+        step: 0.04, // Larger step for faster search
       }
+
+      const symbolDurations = isLowerSampleRate
+        ? [0.098, 0.1, 0.102]
+        : [0.108, 0.109, 0.112]
 
       const candidate = await decoder.decodeAudioDataWithSymbolExtractor(
         data,
         sampleRate,
-        { startTimeRange },
+        {
+          startTimeRange,
+          symbolDurations,
+          symbolsToExtract: 90,
+          windowFraction: 0.6,
+          minConfidence: isLowerSampleRate ? 0.08 : 0.12,
+          candidateOffsets: [0, -0.01, 0.01, -0.015, 0.015],
+        },
       )
 
       if (!candidate) return null

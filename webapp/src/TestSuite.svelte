@@ -68,11 +68,12 @@
       const detectedStart = decoder.findTransmissionStart(audioData.data, audioData.sampleRate)
       const detectedSeconds = detectedStart !== null ? detectedStart / 1000 : audioDuration * 0.08
 
-      // Optimized for webapp files - narrower search range, faster step size
+      // Adjust parameters based on audio length - longer files need wider search
+      const isLongFile = audioDuration > 20 // fesk3 is 36 seconds
       const startTimeRange = {
         start: Math.max(0, detectedSeconds - 0.6),
-        end: Math.min(audioDuration - 0.25, detectedSeconds + 3.0),
-        step: 0.04, // Faster step for quicker search
+        end: Math.min(audioDuration - 0.25, detectedSeconds + (isLongFile ? 5.5 : 3.0)),
+        step: isLongFile ? 0.02 : 0.04, // Smaller step for longer files
       }
 
       const symbolDurations = isLowerSampleRate
@@ -82,10 +83,12 @@
       let frame = await decoder.decodeAudioDataWithSymbolExtractor(audioData.data, audioData.sampleRate, {
         startTimeRange,
         symbolDurations,
-        symbolsToExtract: 90,
+        symbolsToExtract: isLongFile ? 200 : 90, // More symbols for long messages
         windowFraction: 0.6,
         minConfidence: isLowerSampleRate ? 0.08 : 0.12,
-        candidateOffsets: [0, -0.01, 0.01, -0.015, 0.015], // Fewer offsets for speed
+        candidateOffsets: isLongFile
+          ? [0, -0.015, 0.015, -0.01, 0.01, -0.005, 0.005] // More offsets for long files
+          : [0, -0.01, 0.01, -0.015, 0.015], // Fewer offsets for short files
       })
 
       const decodeDuration = performance.now() - decodeStartTime
