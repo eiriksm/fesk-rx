@@ -58,25 +58,8 @@
       const { FeskDecoder } = await import('@fesk/feskDecoder')
       const decoder = new FeskDecoder()
 
-      // Try to find transmission start
-      const detectedStartTime = decoder.findTransmissionStart(audioData.data, audioData.sampleRate)
-
-      let frame = null
-      if (detectedStartTime !== null) {
-        const startSeconds = detectedStartTime / 1000
-        const offsetData = audioData.data.slice(Math.floor(startSeconds * audioData.sampleRate))
-        frame = await decoder.processAudioComplete(offsetData, audioData.sampleRate, 100)
-      } else {
-        frame = await decoder.processAudioComplete(audioData.data, audioData.sampleRate, 100)
-      }
-
-      if (!frame || !frame.isValid) {
-        frame = await decoder.decodeWithSymbolExtractor(
-          audioData.data,
-          audioData.sampleRate,
-          testFile.symbolExtractorOptions || {}
-        )
-      }
+      // Use the fast decode path optimized for webapp test files
+      const frame = await decoder.processFast(audioData.data, audioData.sampleRate)
 
       const endTime = performance.now()
       const processingTime = Math.round(endTime - startTime)
