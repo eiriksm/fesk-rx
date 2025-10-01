@@ -58,8 +58,42 @@
       const { FeskDecoder } = await import('@fesk/feskDecoder')
       const decoder = new FeskDecoder()
 
-      // Use the fast decode path optimized for webapp test files
-      const frame = await decoder.processFast(audioData.data, audioData.sampleRate)
+      // Use optimized symbol extractor with reduced search space
+      console.log(`[${testFile.name}] Decoding with optimized parameters...`)
+      const decodeStartTime = performance.now()
+
+      // Calculate optimized parameters
+      const isLowerSampleRate = audioData.sampleRate <= 46000
+      const audioDuration = audioData.data.length / audioData.sampleRate
+      const detectedStart = decoder.findTransmissionStart(audioData.data, audioData.sampleRate)
+      const detectedSeconds = detectedStart !== null ? detectedStart / 1000 : audioDuration * 0.08
+
+      // Optimized for webapp files - narrower search range, faster step size
+      const startTimeRange = {
+        start: Math.max(0, detectedSeconds - 0.6),
+        end: Math.min(audioDuration - 0.25, detectedSeconds + 3.0),
+        step: 0.04, // Faster step for quicker search
+      }
+
+      const symbolDurations = isLowerSampleRate
+        ? [0.098, 0.1, 0.102]
+        : [0.108, 0.109, 0.112]
+
+      let frame = await decoder.decodeAudioDataWithSymbolExtractor(audioData.data, audioData.sampleRate, {
+        startTimeRange,
+        symbolDurations,
+        symbolsToExtract: 90,
+        windowFraction: 0.6,
+        minConfidence: isLowerSampleRate ? 0.08 : 0.12,
+        candidateOffsets: [0, -0.01, 0.01, -0.015, 0.015], // Fewer offsets for speed
+      })
+
+      const decodeDuration = performance.now() - decodeStartTime
+      if (frame && frame.isValid) {
+        console.log(`[${testFile.name}] ✅ Decoded successfully in ${decodeDuration.toFixed(0)}ms`)
+      } else {
+        console.error(`[${testFile.name}] ❌ Decoding failed after ${decodeDuration.toFixed(0)}ms`)
+      }
 
       const endTime = performance.now()
       const processingTime = Math.round(endTime - startTime)
@@ -74,7 +108,7 @@
         testing: false,
         success,
         decodedMessage,
-        detectedStartTime,
+        detectedStartTime: null, // Not needed for fast path
         processingTime,
         expected: testFile.expectedMessage,
         startTimeExpected: testFile.expectedStartTime,

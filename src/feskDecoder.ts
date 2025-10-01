@@ -462,6 +462,7 @@ export class FeskDecoder {
       number,
     ];
 
+    let iterationCount = 0;
     for (const scale of frequencyScales) {
       // Set scaled frequencies
       if (scale !== 1.0) {
@@ -479,6 +480,10 @@ export class FeskDecoder {
           );
 
           for (const offsetMs of offsetsToTest) {
+            // Yield to event loop every 5 iterations to keep UI responsive
+            if (iterationCount++ % 5 === 0) {
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            }
             const offsetSamples = Math.floor((offsetMs / 1000) * sampleRate);
             const extractedSymbols = [];
             const maxSymbols = 350;
