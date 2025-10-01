@@ -58,64 +58,39 @@
       const { FeskDecoder } = await import('@fesk/feskDecoder')
       const decoder = new FeskDecoder()
 
-      // Try fast processAudioComplete method first
-      console.log(`[${testFile.name}] Trying fast processAudioComplete...`)
-      const fastStartTime = performance.now()
+      // Use symbol extractor with VERY optimized parameters for speed
+      console.log(`[${testFile.name}] Decoding with optimized symbol extractor...`)
+      const decodeStartTime = performance.now()
 
+      const isLowerSampleRate = audioData.sampleRate <= 46000
+      const audioDuration = audioData.data.length / audioData.sampleRate
       const detectedStart = decoder.findTransmissionStart(audioData.data, audioData.sampleRate)
-      let frame
+      const detectedSeconds = detectedStart !== null ? detectedStart / 1000 : audioDuration * 0.08
 
-      if (detectedStart !== null) {
-        const startSeconds = detectedStart / 1000
-        const offsetData = audioData.data.slice(Math.floor(startSeconds * audioData.sampleRate))
-        frame = await decoder.processAudioComplete(offsetData, audioData.sampleRate, 100)
-      } else {
-        frame = await decoder.processAudioComplete(audioData.data, audioData.sampleRate, 100)
+      // Aggressive optimization - very narrow search window
+      const startTimeRange = {
+        start: Math.max(0, detectedSeconds - 0.4),
+        end: Math.min(audioDuration - 0.25, detectedSeconds + 2.5),
+        step: 0.05, // Large step for speed
       }
 
-      const fastDuration = performance.now() - fastStartTime
+      const symbolDurations = isLowerSampleRate ? [0.1] : [0.109] // Single duration
 
-      // Fallback to optimized symbol extractor if processAudioComplete fails
-      if (!frame || !frame.isValid) {
-        console.warn(`[${testFile.name}] processAudioComplete failed after ${fastDuration.toFixed(0)}ms, trying symbol extractor...`)
-        decoder.reset()
+      let frame = await decoder.decodeAudioDataWithSymbolExtractor(audioData.data, audioData.sampleRate, {
+        startTimeRange,
+        symbolDurations,
+        symbolsToExtract: 90,
+        windowFraction: 0.6,
+        minConfidence: isLowerSampleRate ? 0.08 : 0.12,
+        candidateOffsets: [0, -0.01, 0.01], // Minimal offsets
+      })
 
-        const isLowerSampleRate = audioData.sampleRate <= 46000
-        const audioDuration = audioData.data.length / audioData.sampleRate
-        const detectedSeconds = detectedStart !== null ? detectedStart / 1000 : audioDuration * 0.08
+      const decodeDuration = performance.now() - decodeStartTime
 
-        // Adjust parameters based on audio length
-        const isLongFile = audioDuration > 20
-        const startTimeRange = {
-          start: Math.max(0, detectedSeconds - 0.6),
-          end: Math.min(audioDuration - 0.25, detectedSeconds + (isLongFile ? 5.5 : 3.0)),
-          step: isLongFile ? 0.02 : 0.04,
-        }
-
-        const symbolDurations = isLowerSampleRate
-          ? [0.098, 0.1, 0.102]
-          : [0.108, 0.109, 0.112]
-
-        const fallbackStartTime = performance.now()
-        frame = await decoder.decodeAudioDataWithSymbolExtractor(audioData.data, audioData.sampleRate, {
-          startTimeRange,
-          symbolDurations,
-          symbolsToExtract: isLongFile ? 200 : 90,
-          windowFraction: 0.6,
-          minConfidence: isLowerSampleRate ? 0.08 : 0.12,
-          candidateOffsets: isLongFile
-            ? [0, -0.015, 0.015, -0.01, 0.01, -0.005, 0.005]
-            : [0, -0.01, 0.01, -0.015, 0.015],
-        })
-
-        const fallbackDuration = performance.now() - fallbackStartTime
-        if (frame && frame.isValid) {
-          console.log(`[${testFile.name}] ✅ Symbol extractor succeeded in ${fallbackDuration.toFixed(0)}ms`)
-        } else {
-          console.error(`[${testFile.name}] ❌ Both methods failed`)
-        }
+      if (frame && frame.isValid) {
+        console.log(`[${testFile.name}] ✅ Decoded in ${decodeDuration.toFixed(0)}ms`)
       } else {
-        console.log(`[${testFile.name}] ✅ processAudioComplete succeeded in ${fastDuration.toFixed(0)}ms`)
+        console.error(`[${testFile.name}] ❌ Failed after ${decodeDuration.toFixed(0)}ms`)
       }
 
       const endTime = performance.now()
