@@ -80,54 +80,43 @@ export async function decodeWithDefaultPipeline(
   let frame: any = null
   let symbols: number[] = []
   let frequencySet: string | null = null
-
-  let extractorInput = workingData
-  let extractorAttemptedTrimmed = false
-  let extractorAttemptedOriginal = workingData === originalData
-
-  if (preferExtractor) {
-    const extractorResult = await runSymbolExtractor(workingData)
-    extractorAttemptedTrimmed = true
-    if (extractorAttemptedOriginal === false && workingData === originalData) {
-      extractorAttemptedOriginal = true
-    }
-
-    if (extractorResult) {
-      frame = extractorResult.frame
-      symbols = extractorResult.symbols
-      frequencySet = extractorResult.frequencySet ?? frequencySet
-    }
-  }
-
   let startTime: number | null = null
 
-  if (!frame) {
-    decoder.reset()
+  // Always try processAudioComplete FIRST (faster method)
+  console.log('Trying processAudioComplete first for speed...')
+  decoder.reset()
 
-    startTime = decoder.findTransmissionStart(workingData, sampleRate)
+  startTime = decoder.findTransmissionStart(workingData, sampleRate)
 
-    if (startTime !== null) {
-      let decodeStartMs = startTime
+  let extractorInput = workingData
 
-      if (sampleRate >= 47000) {
-        decodeStartMs += 300
-      }
+  if (startTime !== null) {
+    let decodeStartMs = startTime
 
-      const startSeconds = decodeStartMs / 1000
-      const offsetIndex = Math.floor(startSeconds * sampleRate)
-      const offsetData = workingData.slice(offsetIndex)
-
-      extractorInput = offsetData
-
-      frame = await decoder.processAudioComplete(offsetData, sampleRate, 100)
-
-      symbols = decoder.toneDetector.extractSymbols(buildSample(offsetData), 0)
-    } else {
-      frame = await decoder.processAudioComplete(workingData, sampleRate, 100)
-
-      symbols = decoder.toneDetector.extractSymbols(buildSample(workingData), 0)
+    if (sampleRate >= 47000) {
+      decodeStartMs += 300
     }
+
+    const startSeconds = decodeStartMs / 1000
+    const offsetIndex = Math.floor(startSeconds * sampleRate)
+    const offsetData = workingData.slice(offsetIndex)
+
+    extractorInput = offsetData
+
+    frame = await decoder.processAudioComplete(offsetData, sampleRate, 100)
+    symbols = decoder.toneDetector.extractSymbols(buildSample(offsetData), 0)
+  } else {
+    frame = await decoder.processAudioComplete(workingData, sampleRate, 100)
+    symbols = decoder.toneDetector.extractSymbols(buildSample(workingData), 0)
   }
+
+  if (frame && frame.isValid) {
+    console.log('✅ processAudioComplete succeeded')
+  }
+
+  // Track what we've tried with extractor
+  let extractorAttemptedTrimmed = false
+  let extractorAttemptedOriginal = workingData === originalData
 
   if (!frame || !frame.isValid) {
     if (extractorInput !== workingData && extractorInput.length > 0) {
