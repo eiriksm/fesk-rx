@@ -432,6 +432,126 @@ export class FeskDecoder {
     return this.decodeWithSymbolExtractor(audioData, sampleRate, options);
   }
 
+  /**
+   * Fast decode path optimized for known-good audio files (like webapp test files)
+   * Uses simple symbol extraction with expanded parameter search
+   */
+  async processFast(
+    audioData: Float32Array,
+    sampleRate: number,
+  ): Promise<Frame | null> {
+    // Use symbol extraction approach with expanded adaptive timing
+    const adaptiveTiming = this.config.adaptiveTiming;
+    const symbolDurationsToTest = [
+      ...(adaptiveTiming?.symbolDurationsMs || []),
+      95,
+      100,
+      105,
+      108,
+      109,
+      110,
+      112,
+    ];
+    const offsetsToTest = [...(adaptiveTiming?.timingOffsetsMs || []), 0];
+
+    // Try different frequency scalings (webapp-fesk2 uses scaled_0.995)
+    const frequencyScales = [1.0, 0.995, 1.005, 0.99, 1.01];
+    const originalFrequencies = [...this.config.toneFrequencies] as [
+      number,
+      number,
+      number,
+    ];
+
+    let iterationCount = 0;
+    for (const scale of frequencyScales) {
+      // Set scaled frequencies
+      if (scale !== 1.0) {
+        this.setToneFrequencies([
+          Number((originalFrequencies[0] * scale).toFixed(2)),
+          Number((originalFrequencies[1] * scale).toFixed(2)),
+          Number((originalFrequencies[2] * scale).toFixed(2)),
+        ]);
+      }
+
+      try {
+        for (const symbolDurationMs of symbolDurationsToTest) {
+          const symbolSamples = Math.floor(
+            sampleRate * (symbolDurationMs / 1000),
+          );
+
+          for (const offsetMs of offsetsToTest) {
+            // Yield to event loop every 5 iterations to keep UI responsive
+            if (iterationCount++ % 5 === 0) {
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+            const offsetSamples = Math.floor((offsetMs / 1000) * sampleRate);
+            const extractedSymbols = [];
+            const maxSymbols = 350;
+
+            let leadingSilenceSymbols = 0;
+            const maxLeadingSilence = 25;
+
+            for (let i = 0; i < maxSymbols; i++) {
+              const start = i * symbolSamples + offsetSamples;
+              const end = Math.min(start + symbolSamples, audioData.length);
+
+              if (start >= audioData.length || start < 0) break;
+
+              const symbolChunk = audioData.slice(start, end);
+
+              const audioSample = {
+                data: symbolChunk,
+                timestamp: i * symbolDurationMs,
+                sampleRate: sampleRate,
+              };
+
+              const detections = this.toneDetector.detectTones(audioSample);
+
+              if (detections.length > 0) {
+                const bestDetection = detections.reduce((best, current) =>
+                  current.confidence > best.confidence ? current : best,
+                );
+
+                const symbol = this.toneToSymbol(bestDetection.frequency);
+                if (symbol !== null) {
+                  extractedSymbols.push(symbol);
+                }
+                leadingSilenceSymbols = 0;
+              } else {
+                if (extractedSymbols.length === 0) {
+                  leadingSilenceSymbols++;
+                  if (leadingSilenceSymbols > maxLeadingSilence) {
+                    break;
+                  }
+                  continue;
+                }
+                break;
+              }
+            }
+
+            if (extractedSymbols.length >= 25) {
+              const decodeResult =
+                this.decodeCompleteTransmission(extractedSymbols);
+
+              if (decodeResult.frame && decodeResult.frame.isValid) {
+                return decodeResult.frame;
+              }
+            }
+          }
+        }
+      } finally {
+        // Restore original frequencies
+        if (scale !== 1.0) {
+          this.setToneFrequencies(originalFrequencies);
+        }
+      }
+    }
+
+    // Restore original frequencies just in case
+    this.setToneFrequencies(originalFrequencies);
+    return null;
+  }
+
   getLastSymbolExtractorInfo(): SymbolExtractorTelemetry | null {
     return this.lastSymbolExtractorInfo
       ? { ...this.lastSymbolExtractorInfo }

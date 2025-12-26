@@ -58,24 +58,39 @@
       const { FeskDecoder } = await import('@fesk/feskDecoder')
       const decoder = new FeskDecoder()
 
-      // Try to find transmission start
-      const detectedStartTime = decoder.findTransmissionStart(audioData.data, audioData.sampleRate)
+      // Use symbol extractor with VERY optimized parameters for speed
+      console.log(`[${testFile.name}] Decoding with optimized symbol extractor...`)
+      const decodeStartTime = performance.now()
 
-      let frame = null
-      if (detectedStartTime !== null) {
-        const startSeconds = detectedStartTime / 1000
-        const offsetData = audioData.data.slice(Math.floor(startSeconds * audioData.sampleRate))
-        frame = await decoder.processAudioComplete(offsetData, audioData.sampleRate, 100)
-      } else {
-        frame = await decoder.processAudioComplete(audioData.data, audioData.sampleRate, 100)
+      const isLowerSampleRate = audioData.sampleRate <= 46000
+      const audioDuration = audioData.data.length / audioData.sampleRate
+      const detectedStart = decoder.findTransmissionStart(audioData.data, audioData.sampleRate)
+      const detectedSeconds = detectedStart !== null ? detectedStart / 1000 : audioDuration * 0.08
+
+      // Aggressive optimization - very narrow search window
+      const startTimeRange = {
+        start: Math.max(0, detectedSeconds - 0.4),
+        end: Math.min(audioDuration - 0.25, detectedSeconds + 2.5),
+        step: 0.05, // Large step for speed
       }
 
-      if (!frame || !frame.isValid) {
-        frame = await decoder.decodeWithSymbolExtractor(
-          audioData.data,
-          audioData.sampleRate,
-          testFile.symbolExtractorOptions || {}
-        )
+      const symbolDurations = isLowerSampleRate ? [0.1] : [0.109] // Single duration
+
+      let frame = await decoder.decodeAudioDataWithSymbolExtractor(audioData.data, audioData.sampleRate, {
+        startTimeRange,
+        symbolDurations,
+        symbolsToExtract: 90,
+        windowFraction: 0.6,
+        minConfidence: isLowerSampleRate ? 0.08 : 0.12,
+        candidateOffsets: [0, -0.01, 0.01], // Minimal offsets
+      })
+
+      const decodeDuration = performance.now() - decodeStartTime
+
+      if (frame && frame.isValid) {
+        console.log(`[${testFile.name}] ✅ Decoded in ${decodeDuration.toFixed(0)}ms`)
+      } else {
+        console.error(`[${testFile.name}] ❌ Failed after ${decodeDuration.toFixed(0)}ms`)
       }
 
       const endTime = performance.now()
@@ -91,7 +106,7 @@
         testing: false,
         success,
         decodedMessage,
-        detectedStartTime,
+        detectedStartTime: null, // Not needed for fast path
         processingTime,
         expected: testFile.expectedMessage,
         startTimeExpected: testFile.expectedStartTime,

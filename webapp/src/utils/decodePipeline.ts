@@ -34,17 +34,33 @@ export async function decodeWithDefaultPipeline(
     try {
       decoder.reset()
 
+      // Optimized parameters for faster decoding
+      const isLowerSampleRate = sampleRate <= 46000
       const duration = data.length / sampleRate
+      const detectedStart = decoder.findTransmissionStart(data, sampleRate)
+      const detectedSeconds = detectedStart !== null ? detectedStart / 1000 : duration * 0.08
+
       const startTimeRange = {
-        start: 0,
-        end: Math.max(0.05, Math.min(duration, Math.max(0.5, duration * 0.75))),
-        step: 0.02,
+        start: Math.max(0, detectedSeconds - 0.6),
+        end: Math.min(duration - 0.25, detectedSeconds + 3.0),
+        step: 0.04, // Larger step for faster search
       }
+
+      const symbolDurations = isLowerSampleRate
+        ? [0.098, 0.1, 0.102]
+        : [0.108, 0.109, 0.112]
 
       const candidate = await decoder.decodeAudioDataWithSymbolExtractor(
         data,
         sampleRate,
-        { startTimeRange },
+        {
+          startTimeRange,
+          symbolDurations,
+          symbolsToExtract: 90,
+          windowFraction: 0.6,
+          minConfidence: isLowerSampleRate ? 0.08 : 0.12,
+          candidateOffsets: [0, -0.01, 0.01, -0.015, 0.015],
+        },
       )
 
       if (!candidate) return null
@@ -69,23 +85,26 @@ export async function decodeWithDefaultPipeline(
   let extractorAttemptedTrimmed = false
   let extractorAttemptedOriginal = workingData === originalData
 
-  if (preferExtractor) {
-    const extractorResult = await runSymbolExtractor(workingData)
-    extractorAttemptedTrimmed = true
-    if (extractorAttemptedOriginal === false && workingData === originalData) {
-      extractorAttemptedOriginal = true
-    }
+  // Always try optimized symbol extractor first (works best for most files)
+  console.log('Trying optimized symbol extractor...')
+  const extractorResult = await runSymbolExtractor(workingData)
+  extractorAttemptedTrimmed = true
+  if (extractorAttemptedOriginal === false && workingData === originalData) {
+    extractorAttemptedOriginal = true
+  }
 
-    if (extractorResult) {
-      frame = extractorResult.frame
-      symbols = extractorResult.symbols
-      frequencySet = extractorResult.frequencySet ?? frequencySet
-    }
+  if (extractorResult) {
+    frame = extractorResult.frame
+    symbols = extractorResult.symbols
+    frequencySet = extractorResult.frequencySet ?? frequencySet
+    console.log('✅ Symbol extractor succeeded')
   }
 
   let startTime: number | null = null
 
-  if (!frame) {
+  // Fallback to processAudioComplete if extractor failed
+  if (!frame || !frame.isValid) {
+    console.log('Symbol extractor failed, trying processAudioComplete...')
     decoder.reset()
 
     startTime = decoder.findTransmissionStart(workingData, sampleRate)
@@ -104,12 +123,14 @@ export async function decodeWithDefaultPipeline(
       extractorInput = offsetData
 
       frame = await decoder.processAudioComplete(offsetData, sampleRate, 100)
-
       symbols = decoder.toneDetector.extractSymbols(buildSample(offsetData), 0)
     } else {
       frame = await decoder.processAudioComplete(workingData, sampleRate, 100)
-
       symbols = decoder.toneDetector.extractSymbols(buildSample(workingData), 0)
+    }
+
+    if (frame && frame.isValid) {
+      console.log('✅ processAudioComplete succeeded')
     }
   }
 
